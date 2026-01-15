@@ -57,7 +57,7 @@ protected:
 	
 	// 움직임 튜닝
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Move")
-	float WalkSpeed = 150.f;
+	float WalkSpeed = 200.f;
 	
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Move")
 	float RunSpeed = 500.f;

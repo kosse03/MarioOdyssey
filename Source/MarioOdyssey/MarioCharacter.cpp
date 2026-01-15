@@ -46,7 +46,7 @@ AMarioCharacter::AMarioCharacter()
 	
 	//웅크리기
 	GetCharacterMovement()->GetNavAgentPropertiesRef().bCanCrouch = true;
-	GetCharacterMovement()->CrouchedHalfHeight = 1.0f;
+	GetCharacterMovement()->CrouchedHalfHeight = 35.0f;
 	ApplyMoveSpeed();
 }
 
