@@ -36,6 +36,8 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Camera")
 	float CameraRotationInterpSpeed = 24.f;
 	
+	FVector SpringArmTargetOffset_Default = FVector::ZeroVector;
+	
 	//인풋
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	UInputMappingContext* IMC_Player;

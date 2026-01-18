@@ -46,13 +46,18 @@ AMarioCharacter::AMarioCharacter()
 	
 	//웅크리기
 	GetCharacterMovement()->GetNavAgentPropertiesRef().bCanCrouch = true;
-	GetCharacterMovement()->CrouchedHalfHeight = 35.0f;
+	GetCharacterMovement()->SetCrouchedHalfHeight(35.0f);
 	ApplyMoveSpeed();
 }
 
 void AMarioCharacter::BeginPlay()
 {
 	Super::BeginPlay();
+	
+	if (SpringArm)
+	{
+		SpringArmTargetOffset_Default = SpringArm->TargetOffset;
+	}
 	
 	//인핸스 인풋 매핑 추가
 	if (APlayerController* PC = Cast<APlayerController>(Controller))
@@ -110,6 +115,8 @@ void AMarioCharacter::Landed(const FHitResult& Hit)
 	
 	bIsLongJumping = false;
 	bIsBackflipping = false;
+	
+	ApplyMoveSpeed();
 }
 
 
@@ -163,6 +170,12 @@ void AMarioCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComp
 void AMarioCharacter::OnStartCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust)
 {
 	Super::OnStartCrouch(HalfHeightAdjust, ScaledHalfHeightAdjust);
+	if (SpringArm)
+	{
+		FVector Offset = SpringArmTargetOffset_Default;
+		Offset.Z += ScaledHalfHeightAdjust;   // 스케일 반영된 값 사용
+		SpringArm->TargetOffset = Offset;
+	}
 	bAnimIsCrouched = true;
 	ApplyMoveSpeed();
 }
@@ -170,6 +183,10 @@ void AMarioCharacter::OnStartCrouch(float HalfHeightAdjust, float ScaledHalfHeig
 void AMarioCharacter::OnEndCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust)
 {
 	Super::OnEndCrouch(HalfHeightAdjust, ScaledHalfHeightAdjust);
+	if (SpringArm)
+	{
+		SpringArm->TargetOffset = SpringArmTargetOffset_Default;
+	}
 	bAnimIsCrouched = false; 
 	ApplyMoveSpeed();
 }
@@ -238,6 +255,10 @@ void AMarioCharacter::OnCrouchReleased(const FInputActionValue& Value)
 
 void AMarioCharacter::OnJumpPressed() // 3단 점프, 반동 점프 구현
 {
+	if (GetCharacterMovement()->IsFalling())
+	{
+		return;
+	}
 	bIsPoundJumping = false;
 	if (bIsGroundPoundPreparing || bIsGroundPounding )
 		return;
@@ -313,6 +334,14 @@ void AMarioCharacter::OnRunReleased()
 // 엉덩방아
 void AMarioCharacter::OnGroundPoundPressed()
 {
+	if (GetCharacterMovement()->IsMovingOnGround())
+	{
+		return;
+	}
+	if (bIsLongJumping)
+	{
+		return;
+	}
 	if (!GetCharacterMovement()->IsFalling()) //공중 일때 가능
 		return;
 	
