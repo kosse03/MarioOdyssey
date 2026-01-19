@@ -25,7 +25,7 @@ AMarioCharacter::AMarioCharacter()
 	GetCharacterMovement()->AirControl = 0.8f;
 	GetCharacterMovement()->BrakingDecelerationWalking = 2048.f;
 	
-	GetCharacterMovement()->GravityScale  = 2.0f;//점프 중력 스케일
+	GetCharacterMovement()->GravityScale  = DefaultGravityScale;//점프 중력 스케일
 	//카메라
 	SpringArm = CreateDefaultSubobject<USpringArmComponent>(TEXT("SpringArm"));
 	SpringArm->SetupAttachment(RootComponent);
@@ -78,12 +78,19 @@ void AMarioCharacter::BeginPlay()
 			}
 		}
 	}
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		DefaultAirControl = MoveComp->AirControl;
+		DefaultMaxAcceleration = MoveComp->MaxAcceleration;
+		DefaultBrakingDecelFalling = MoveComp->BrakingDecelerationFalling;
+		bDefaultOrientRotationToMovement = MoveComp->bOrientRotationToMovement;
+	}
 }
 
 void AMarioCharacter::Landed(const FHitResult& Hit)
 {
 	Super::Landed(Hit);
-	
+	EndDive();
 	//엉덩방아
 	if (bIsGroundPounding)
 	{
@@ -91,6 +98,9 @@ void AMarioCharacter::Landed(const FHitResult& Hit)
 		bGroundPoundStunned = true;
 		bWaitingForPoundJump = true;
 		bPoundJumpConsumed = false;
+		State.GroundPound = EGroundPoundPhase::Stunned;
+		State.bPoundJumpWindowOpen = true;
+		State.bPoundJumpConsumed = false;
 		
 		GetCharacterMovement()->SetMovementMode(MOVE_Walking);
 		
@@ -104,6 +114,21 @@ void AMarioCharacter::Landed(const FHitResult& Hit)
 	{
 		bGroundPoundUsed = false;
 		EndPoundJumpWindow();
+	}
+	
+	if (bIsGroundPoundPreparing) // preparing 상태에서 착지가 되버릴시 이동 영구 막힘 방지
+	{
+		bIsGroundPoundPreparing = false;
+		bGroundPoundUsed = false;
+
+		GetWorld()->GetTimerManager().ClearTimer(GroundPoundPrepareTimer);
+
+		if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+		{
+			MoveComp->GravityScale = DefaultGravityScale;
+		}
+
+		State.GroundPound = EGroundPoundPhase::None;
 	}
 	
 	LastLandedTime = GetWorld()->GetTimeSeconds(); // 마지막 착지 시간 불러오기
@@ -194,9 +219,12 @@ void AMarioCharacter::OnEndCrouch(float HalfHeightAdjust, float ScaledHalfHeight
 
 void AMarioCharacter::Move(const FInputActionValue& Value) // 이동
 {
-	if (bIsGroundPoundPreparing || bIsGroundPounding || bGroundPoundStunned)
+	if (!State.CanMove())
 		return;
-	
+	if (bIsDiving)
+	{
+		return;
+	}
 	const FVector2D Input = Value.Get<FVector2D>();
 	if (!Controller) return;
 	
@@ -226,14 +254,22 @@ void AMarioCharacter::OnCrouchPressed(const FInputActionValue& Value)
 
 	if (bOnGround)
 	{
-		// GroundPound 착지 직후(스턴/반동점프 창)에는 crouch로 상태 꼬이지 않게 막는 게 안전
+		// GroundPound 착지후에는 다이브 불가
 		if (bGroundPoundStunned || bWaitingForPoundJump)
+		{
 			return;
+		}
 
 		BeginCrouchHold();
 	}
 	else
 	{
+		// 이미 GroundPound 진행 중(Preparing/Pounding)이라면 C 재입력 = Dive
+		if (bIsGroundPoundPreparing || bIsGroundPounding)
+		{
+			StartDiveFromCurrentContext();
+			return;
+		}
 		// 공중이면 기존 GroundPound 로직 재사용
 		OnGroundPoundPressed();
 	}
@@ -259,6 +295,7 @@ void AMarioCharacter::OnJumpPressed() // 3단 점프, 반동 점프 구현
 	{
 		return;
 	}
+	
 	bIsPoundJumping = false;
 	if (bIsGroundPoundPreparing || bIsGroundPounding )
 		return;
@@ -273,6 +310,11 @@ void AMarioCharacter::OnJumpPressed() // 3단 점프, 반동 점프 구현
 		bIsPoundJumping = true;
 		bGroundPoundStunned = false;
 		bGroundPoundUsed = false;
+		
+		State.GroundPound = EGroundPoundPhase::None;
+		State.bPoundJumpWindowOpen = false;
+		State.bPoundJumpConsumed = true;
+		
 		GetWorld()->GetTimerManager().ClearTimer(GroundPoundStunTimer);
 
 		LaunchCharacter(FVector(0.f, 0.f, PoundJumpZVelocity), true, true);
@@ -350,6 +392,13 @@ void AMarioCharacter::OnGroundPoundPressed()
 	
 	bGroundPoundUsed = true;
 	bIsGroundPoundPreparing = true;
+	State.GroundPound = EGroundPoundPhase::Preparing;
+	
+	// GroundPound 시작 시점의 “바라보던 방향” 저장(캐릭터 기반)
+	
+	StoredPoundFacingDir = GetActorForwardVector().GetSafeNormal();
+	bHasStoredPoundFacingDir = true;
+	
 	
 	GetCharacterMovement()->StopMovementImmediately();
 	GetCharacterMovement()->GravityScale = 0.f;
@@ -447,14 +496,96 @@ void AMarioCharacter::DoBackflip()
 	LaunchCharacter(LaunchVel, true, true);
 }
 
+void AMarioCharacter::StartDiveFromCurrentContext()
+{
+	UCharacterMovementComponent* MoveComp = GetCharacterMovement();
+	if (!MoveComp) return;
+	
+	if (bGroundPoundStunned || bWaitingForPoundJump) // 스턴, 반동중에는 다이브 금지
+		return;
+	
+	// 이미 다이브 중이면 무시
+	if (bIsDiving) return;
+
+	// 사용할 방향 결정(저장된 방향 우선)
+	FVector DiveDir = bHasStoredPoundFacingDir ? StoredPoundFacingDir : GetActorForwardVector();
+	DiveDir = DiveDir.GetSafeNormal();
+	if (DiveDir.IsNearlyZero())
+	{
+		DiveDir = GetActorForwardVector().GetSafeNormal();
+	}
+
+	// --- GroundPound 관련 상태 강제 종료(중요: Move 차단 풀기) ---
+	bIsGroundPoundPreparing = false;
+	bIsGroundPounding = false;
+	bGroundPoundStunned = false;
+
+	// 반동점프 창도 닫기(너는 이미 EndPoundJumpWindow() + State 동기화까지 해둔 상태)
+	EndPoundJumpWindow();
+	bWaitingForPoundJump = false;
+
+	// 타이머 정리
+	GetWorld()->GetTimerManager().ClearTimer(GroundPoundPrepareTimer);
+	GetWorld()->GetTimerManager().ClearTimer(GroundPoundStunTimer);
+
+	// State 동기화(이게 Move() 막힘을 확실히 해제)
+	State.GroundPound = EGroundPoundPhase::None;
+	State.AirAction = EMarioAirAction::Dive;
+
+	// Dive 상태 on
+	bIsDiving = true;
+
+	// Prepare에서 0으로 만들었던 중력 복구
+	MoveComp->GravityScale = DefaultGravityScale;
+
+	// 다이브 방향 고정
+	MoveComp->bOrientRotationToMovement = false;
+	SetActorRotation(DiveDir.Rotation());
+
+	// 다이브 중 공중조작 완전 차단
+	MoveComp->AirControl = 0.0f;
+	MoveComp->MaxAcceleration = 0.0f;
+	MoveComp->BrakingDecelerationFalling = 0.0f;
+
+	// 지상 스턴에서 발동하는 경우도 있으니, 다이브는 Falling으로 강제
+	MoveComp->SetMovementMode(MOVE_Falling);
+
+	// Launch
+	const FVector LaunchVel = (DiveDir * Dive_ForwardStrength) + FVector(0.f, 0.f, Dive_UpStrength);
+	LaunchCharacter(LaunchVel, true, true);
+}
+
+void AMarioCharacter::EndDive()
+{
+	if (!bIsDiving) return;
+
+	bIsDiving = false;
+
+	// State 정리
+	if (State.AirAction == EMarioAirAction::Dive)
+	{
+		State.AirAction = EMarioAirAction::None;
+	}
+
+	// 이동/회전 원복
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		MoveComp->AirControl = DefaultAirControl;
+		MoveComp->MaxAcceleration = DefaultMaxAcceleration;
+		MoveComp->BrakingDecelerationFalling = DefaultBrakingDecelFalling;
+		MoveComp->bOrientRotationToMovement = bDefaultOrientRotationToMovement;
+	}
+}
+
 void AMarioCharacter::StartGroundPound()
 {
 	bIsGroundPoundPreparing = false;
 	bIsGroundPounding = true;
+	State.GroundPound = EGroundPoundPhase::Pounding;
 	
 	//다시 낙하 상태
 	GetCharacterMovement()->SetMovementMode(MOVE_Falling);
-	GetCharacterMovement()->GravityScale = 2.0f;
+	GetCharacterMovement()->GravityScale = DefaultGravityScale;
 	//기존 속도 제거 후 강제 하강
 	GetCharacterMovement()->Velocity =FVector::ZeroVector;
 	
@@ -466,13 +597,15 @@ void AMarioCharacter::EndGroundPoundStun()
 	bGroundPoundStunned = false;
 	EndPoundJumpWindow();
 	bGroundPoundUsed = false;
-	
+	State.GroundPound = EGroundPoundPhase::None;
 }
 
 void AMarioCharacter::EndPoundJumpWindow()
 {
 	bWaitingForPoundJump = false;
 	bPoundJumpConsumed = false;
+	State.bPoundJumpWindowOpen = false;
+	State.bPoundJumpConsumed = false;
 }
 
 void AMarioCharacter::ApplyMoveSpeed()

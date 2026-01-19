@@ -6,7 +6,9 @@
 #include "GameFramework/Character.h"
 #include "InputAction.h"
 #include "InputMappingContext.h"
+#include "MarioState.h"
 #include "MarioCharacter.generated.h"
+
 
 class UCameraComponent;
 class USpringArmComponent;
@@ -70,7 +72,8 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Category = "State|Run", meta=(AllowPrivateAccess="true"))
 	bool bIsRunning = false;
 	
-	//점프 관련
+	float DefaultGravityScale = 2.0f;
+	//점프
 	UPROPERTY(BlueprintReadOnly, Category = "State|Jump", meta=(AllowPrivateAccess="true"))
 	int32 JumpStage = 0; // 점프 단계
 	UPROPERTY(EditDefaultsOnly, Category = "Jump")
@@ -101,7 +104,7 @@ protected:
 	float CrouchSpeedScale = 0.6f; // 웅크리기 중 이동 속도 비율
 	
 	UPROPERTY(EditDefaultsOnly, Category="Mario|LongJump")
-	float LongJump_MinSpeed2D = 1.f; // 롱점프 진입 최소 값
+	float LongJump_MinSpeed2D = 10.f; // 롱점프 진입 최소 값
 
 	UPROPERTY(EditDefaultsOnly, Category="Mario|LongJump")
 	float LongJump_ForwardStrength = 950.f; // 롱점프 전방 값
@@ -158,6 +161,24 @@ protected:
 	FTimerHandle GroundPoundPrepareTimer;
 	FTimerHandle GroundPoundStunTimer;
 	
+	// 다이브
+	UPROPERTY(BlueprintReadOnly, Category="State|Dive", meta=(AllowPrivateAccess="true"))
+	bool bIsDiving = false;
+
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Dive")
+	float Dive_ForwardStrength = 1100.f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Dive")
+	float Dive_UpStrength = 250.f;
+	
+	float DefaultAirControl = 0.8f;
+	float DefaultMaxAcceleration = 2048.f;
+	float DefaultBrakingDecelFalling = 0.f;
+	bool  bDefaultOrientRotationToMovement = true;
+	
+	FVector StoredPoundFacingDir = FVector::ForwardVector;
+	bool bHasStoredPoundFacingDir = false;
+	
 	//인풋 콜백
 	void Move(const FInputActionValue& Value);
 	void Look(const FInputActionValue& Value);
@@ -173,7 +194,9 @@ protected:
 	void TryCrouchDerivedJump();//분기(롱/백텀블) 시도
 	void DoLongJump();//롱점프
 	void DoBackflip();//백덤블링
-
+	void StartDiveFromCurrentContext();//다이브 시작
+	void EndDive();//다이브 끝
+	
 	//헬퍼
 	void ApplyMoveSpeed();
 	
@@ -185,4 +208,6 @@ public:
 	virtual void OnStartCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust) override;
 	virtual void OnEndCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust) override;
 
+private:
+	FMarioState State;
 };
