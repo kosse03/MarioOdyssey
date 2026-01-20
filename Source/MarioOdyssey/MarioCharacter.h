@@ -169,7 +169,7 @@ protected:
 	float Dive_ForwardStrength = 1100.f;
 
 	UPROPERTY(EditDefaultsOnly, Category="Mario|Dive")
-	float Dive_UpStrength = 250.f;
+	float Dive_UpStrength = 450.f;
 	
 	float DefaultAirControl = 0.8f;
 	float DefaultMaxAcceleration = 2048.f;
@@ -179,11 +179,44 @@ protected:
 	FVector StoredPoundFacingDir = FVector::ForwardVector;
 	bool bHasStoredPoundFacingDir = false;
 	
+	// 내리막길 부스트, 턴
+	UPROPERTY(EditDefaultsOnly, Category="Mario|SlopeBoost")
+	float MinSlopeAngleDeg = 12.f;          // 이 각도 이상이면 내리막
+
+	UPROPERTY(EditDefaultsOnly, Category="Mario|SlopeBoost")
+	float BoostMaxAddSpeed = 250.f;         // 기본 RunSpeed + 최대 추가 속도
+
+	UPROPERTY(EditDefaultsOnly, Category="Mario|SlopeBoost")
+	float BoostRiseSpeed = 3.f;             // 부스트 올라가는 보간 속도
+
+	UPROPERTY(EditDefaultsOnly, Category="Mario|SlopeBoost")
+	float BoostDecaySpeed = 2.f;            // 부스트 내려가는 보간 속도
+
+	UPROPERTY(EditDefaultsOnly, Category="Mario|SlopeBoost")
+	float BoostHoldTime = 2.35f;            // 부스트 시간 유지(부스트 어느정도 유지)
+
+	UPROPERTY(EditDefaultsOnly, Category="Mario|SlopeBoost")
+	float DownhillDotThreshold = 0.55f;     // 내리막 방향과 속도 방향 조건
+
+	UPROPERTY(EditDefaultsOnly, Category="Mario|SlopeBoost")
+	float MinSpeedForBoost = 250.f;         // 가속 진입 최소 속도
+
+	// animbp용
+	UPROPERTY(BlueprintReadOnly, Category="State|SlopeBoost", meta=(AllowPrivateAccess="true"))
+	bool bIsDownhillBoosting = false;
+
+	UPROPERTY(BlueprintReadOnly, Category="State|SlopeBoost", meta=(AllowPrivateAccess="true"))
+	float DownhillBoostAlpha = 0.f;         // 0~1
+
+	float DownhillHoldRemaining = 0.f;
+	
 	//인풋 콜백
 	void Move(const FInputActionValue& Value);
 	void Look(const FInputActionValue& Value);
 	void OnCrouchPressed(const FInputActionValue& Value);
 	void OnCrouchReleased(const FInputActionValue& Value);
+	void UpdateDownhillBoost(float DeltaSeconds);
+	void ForceDisableDownhillBoost(float DeltaSeconds);
 	
 	void OnJumpPressed();//점프
 	void OnRunPressed();//달리기
@@ -199,7 +232,7 @@ protected:
 	
 	//헬퍼
 	void ApplyMoveSpeed();
-	
+	float GetBaseMoveSpeed() const; // 
 public:	
 	virtual void Tick(float DeltaTime) override;
 	

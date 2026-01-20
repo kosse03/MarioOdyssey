@@ -148,7 +148,7 @@ void AMarioCharacter::Landed(const FHitResult& Hit)
 void AMarioCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
-	if (Controller)
+	if (Controller) // 카메라 위치에 따른 보간(웅크리기)
 	{
 		const FRotator Current = Controller->GetControlRotation();
 		const FRotator Smoothed = FMath::RInterpTo(
@@ -160,6 +160,7 @@ void AMarioCharacter::Tick(float DeltaTime)
 
 		Controller->SetControlRotation(Smoothed);
 	}
+	UpdateDownhillBoost(DeltaTime);
 }
 
 void AMarioCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -286,6 +287,122 @@ void AMarioCharacter::OnCrouchReleased(const FInputActionValue& Value)
 		UnCrouch();
 		ApplyMoveSpeed();
 	}
+}
+
+void AMarioCharacter::UpdateDownhillBoost(float DeltaSeconds)
+{
+	UCharacterMovementComponent* MoveComp = GetCharacterMovement();
+    if (!MoveComp) return;
+
+    // 특수 상태에서는 부스트 금지
+    if (bIsDiving) { ForceDisableDownhillBoost(DeltaSeconds); return; }
+    if (!State.CanMove()) { ForceDisableDownhillBoost(DeltaSeconds); return; }
+	if (bIsCrouched || bCrouchHeld)
+	{
+		ForceDisableDownhillBoost(DeltaSeconds);
+		return;
+	}
+	
+    // 지상에서
+    if (!MoveComp->IsMovingOnGround())
+    {
+        ForceDisableDownhillBoost(DeltaSeconds);
+        return;
+    }
+	// 달리기 아닐 때: 부스트를 서서히 꺼서 WalkSpeed로 복귀
+	if (!bIsRunning)
+	{
+		DownhillHoldRemaining = 0.f;
+		DownhillBoostAlpha = FMath::FInterpTo(DownhillBoostAlpha, 0.f, DeltaSeconds, BoostDecaySpeed);
+		bIsDownhillBoosting = (DownhillBoostAlpha > 0.05f);
+
+		const float BaselineSpeed = GetBaseMoveSpeed(); // 여기선 WalkSpeed(또는 crouch)
+		MoveComp->MaxWalkSpeed = BaselineSpeed + BoostMaxAddSpeed * DownhillBoostAlpha; // 서서히 감소
+		return;
+	}
+    const FVector Vel2D(MoveComp->Velocity.X, MoveComp->Velocity.Y, 0.f);
+    const float Speed2D = Vel2D.Size();
+    if (Speed2D < MinSpeedForBoost)
+    {
+        ForceDisableDownhillBoost(DeltaSeconds);
+        return;
+    }
+
+    const FFindFloorResult& Floor = MoveComp->CurrentFloor;
+    if (!Floor.IsWalkableFloor())
+    {
+        ForceDisableDownhillBoost(DeltaSeconds);
+        return;
+    }
+
+    const FVector FloorNormal = Floor.HitResult.ImpactNormal.GetSafeNormal();
+    const FVector Up = FVector::UpVector;
+
+    // 경사 각도
+    const float CosAngle = FVector::DotProduct(FloorNormal, Up);
+    const float SlopeAngleDeg = FMath::RadiansToDegrees(
+        FMath::Acos(FMath::Clamp(CosAngle, -1.f, 1.f)));
+
+    const bool bSlopeEnough = (SlopeAngleDeg >= MinSlopeAngleDeg);
+
+    // 내리막 방향(중력 방향을 바닥 평면에 투영)
+    const FVector GravityDir = -Up;
+    FVector DownhillDir = GravityDir - FVector::DotProduct(GravityDir, FloorNormal) * FloorNormal;
+    if (!DownhillDir.Normalize())
+    {
+        ForceDisableDownhillBoost(DeltaSeconds);
+        return;
+    }
+
+    const FVector VelDir = Vel2D.GetSafeNormal();
+    FVector Downhill2D(DownhillDir.X, DownhillDir.Y, 0.f);
+    if (!Downhill2D.Normalize())
+    {
+        ForceDisableDownhillBoost(DeltaSeconds);
+        return;
+    }
+
+    const float DownhillDot = FVector::DotProduct(VelDir, Downhill2D);
+	const bool bIsRunningDownhill = bIsRunning && bSlopeEnough && (DownhillDot >= DownhillDotThreshold);
+
+    // 유지 시간
+    if (bIsRunningDownhill)
+    {
+        DownhillHoldRemaining = BoostHoldTime;
+    }
+    else
+    {
+        DownhillHoldRemaining = FMath::Max(0.f, DownhillHoldRemaining - DeltaSeconds);
+    }
+
+    const bool bShouldBoost = (bIsRunningDownhill || DownhillHoldRemaining > 0.f);
+
+    // 보간
+    const float TargetAlpha = bShouldBoost ? 1.f : 0.f;
+    const float InterpSpeed = bShouldBoost ? BoostRiseSpeed : BoostDecaySpeed;
+    DownhillBoostAlpha = FMath::FInterpTo(DownhillBoostAlpha, TargetAlpha, DeltaSeconds, InterpSpeed);
+
+    bIsDownhillBoosting = (DownhillBoostAlpha > 0.05f);
+
+    // 속도 적용: 기본 속도 + 추가 속도
+	const float BaselineSpeed = GetBaseMoveSpeed();
+	const float TargetMaxSpeed = BaselineSpeed + BoostMaxAddSpeed * DownhillBoostAlpha;
+
+    // 여기서 직접 MaxWalkSpeed
+    MoveComp->MaxWalkSpeed = TargetMaxSpeed;
+}
+
+void AMarioCharacter::ForceDisableDownhillBoost(float DeltaSeconds)
+{
+	UCharacterMovementComponent* MoveComp = GetCharacterMovement();
+	if (!MoveComp) return;
+
+	DownhillHoldRemaining = 0.f;
+	DownhillBoostAlpha = FMath::FInterpTo(DownhillBoostAlpha, 0.f, DeltaSeconds, BoostDecaySpeed);
+	bIsDownhillBoosting = (DownhillBoostAlpha > 0.05f);
+
+	const float BaselineSpeed = GetBaseMoveSpeed();
+	MoveComp->MaxWalkSpeed = BaselineSpeed + BoostMaxAddSpeed * DownhillBoostAlpha;
 }
 
 
@@ -515,12 +632,12 @@ void AMarioCharacter::StartDiveFromCurrentContext()
 		DiveDir = GetActorForwardVector().GetSafeNormal();
 	}
 
-	// --- GroundPound 관련 상태 강제 종료(중요: Move 차단 풀기) ---
+	// GroundPound 관련 상태 강제 종료
 	bIsGroundPoundPreparing = false;
 	bIsGroundPounding = false;
 	bGroundPoundStunned = false;
 
-	// 반동점프 창도 닫기(너는 이미 EndPoundJumpWindow() + State 동기화까지 해둔 상태)
+	// 반동점프 창도 닫기
 	EndPoundJumpWindow();
 	bWaitingForPoundJump = false;
 
@@ -534,7 +651,9 @@ void AMarioCharacter::StartDiveFromCurrentContext()
 
 	// Dive 상태 on
 	bIsDiving = true;
-
+	//점프 연계 초기화
+	JumpStage = 0;
+	LastLandedTime = 0.f;
 	// Prepare에서 0으로 만들었던 중력 복구
 	MoveComp->GravityScale = DefaultGravityScale;
 
@@ -610,13 +729,22 @@ void AMarioCharacter::EndPoundJumpWindow()
 
 void AMarioCharacter::ApplyMoveSpeed()
 {
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		MoveComp->MaxWalkSpeed = GetBaseMoveSpeed();
+	}
+}
+
+float AMarioCharacter::GetBaseMoveSpeed() const
+{
 	float Speed = bIsRunning ? RunSpeed : WalkSpeed;
-	
+
+	// 웅크리기(홀드) 포함해서 속도 낮춤
 	if (bIsCrouched || bCrouchHeld)
 	{
 		Speed = WalkSpeed * CrouchSpeedScale;
 	}
 
-	GetCharacterMovement()->MaxWalkSpeed = Speed;
+	return Speed;
 }
 
