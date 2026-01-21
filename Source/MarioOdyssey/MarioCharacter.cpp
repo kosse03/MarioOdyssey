@@ -84,6 +84,10 @@ void AMarioCharacter::BeginPlay()
 		DefaultMaxAcceleration = MoveComp->MaxAcceleration;
 		DefaultBrakingDecelFalling = MoveComp->BrakingDecelerationFalling;
 		bDefaultOrientRotationToMovement = MoveComp->bOrientRotationToMovement;
+		DefaultGroundFriction = MoveComp->GroundFriction;
+		DefaultBrakingDecelWalking = MoveComp->BrakingDecelerationWalking;
+		DefaultBrakingFrictionFactor = MoveComp->BrakingFrictionFactor;
+
 	}
 }
 
@@ -480,12 +484,19 @@ void AMarioCharacter::OnJumpPressed() // 3단 점프, 반동 점프 구현
 
 void AMarioCharacter::OnRunPressed()
 {
+	if (CanStartRoll())
+	{
+		StartRoll();
+		return;
+	}
 	bIsRunning = true;
 	ApplyMoveSpeed();
 }
 
 void AMarioCharacter::OnRunReleased()
 {
+	if (bIsRolling)
+		return;
 	bIsRunning = false;
 	ApplyMoveSpeed();
 }
@@ -694,6 +705,36 @@ void AMarioCharacter::EndDive()
 		MoveComp->BrakingDecelerationFalling = DefaultBrakingDecelFalling;
 		MoveComp->bOrientRotationToMovement = bDefaultOrientRotationToMovement;
 	}
+}
+
+bool AMarioCharacter::CanStartRoll() const
+{
+	return true;
+}
+
+FVector AMarioCharacter::ComputeRollDirection() const
+{
+	return GetActorForwardVector().GetSafeNormal();
+}
+
+void AMarioCharacter::StartRoll()
+{
+}
+
+void AMarioCharacter::EnterRollLoop()
+{
+}
+
+void AMarioCharacter::BeginRollEnd()
+{
+}
+
+void AMarioCharacter::FinishRoll()
+{
+}
+
+void AMarioCharacter::AbortRoll()
+{
 }
 
 void AMarioCharacter::StartGroundPound()

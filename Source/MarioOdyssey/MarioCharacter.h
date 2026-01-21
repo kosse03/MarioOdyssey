@@ -128,6 +128,41 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Category="State|Crouch", meta=(AllowPrivateAccess="true"))
 	bool bAnimIsCrouched = false; // 웅크리기 상태
 	
+	//구르기
+	UPROPERTY(BlueprintReadOnly, Category="State|Roll", meta=(AllowPrivateAccess="true"))
+	bool bIsRolling = false;
+
+	UPROPERTY(BlueprintReadOnly, Category="State|Roll", meta=(AllowPrivateAccess="true"))
+	ERollPhase RollPhase = ERollPhase::None;
+
+	UPROPERTY(BlueprintReadOnly, Category="State|Roll", meta=(AllowPrivateAccess="true"))
+	FVector RollDirection = FVector::ZeroVector;
+	
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Roll")
+	float RollSpeed = 900.f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Roll")
+	float RollStartDuration = 0.17f;   // RollStart 애니 길이
+
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Roll")
+	float RollLoopDuration = 0.0f;    // 0이면 Loop 무한(외부에서 End 호출 방식)
+
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Roll")
+	float RollEndDuration = 0.27f;     // RollEnd 애니 길이
+
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Roll")
+	float RollGroundFriction = 0.5f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Roll")
+	float RollBrakingDecel = 256.f;
+
+	FTimerHandle RollPhaseTimer;
+	
+	float DefaultGroundFriction = 8.f; // 이동값 캐싱 
+	float DefaultBrakingDecelWalking = 2048.f;
+	float DefaultBrakingFrictionFactor = 2.f;
+
+	
 	//엉덩방아
 	UPROPERTY(BlueprintReadOnly, Category = "State|GroundPound", meta=(AllowPrivateAccess="true"))
 	bool bIsGroundPoundPreparing = false; // 공중제비 중
@@ -229,7 +264,14 @@ protected:
 	void DoBackflip();//백덤블링
 	void StartDiveFromCurrentContext();//다이브 시작
 	void EndDive();//다이브 끝
-	
+	// 구르기
+	bool CanStartRoll() const;
+	FVector ComputeRollDirection() const;
+	void StartRoll();
+	void EnterRollLoop();
+	void BeginRollEnd();
+	void FinishRoll();    // 정상 종료(End 애니 포함)
+	void AbortRoll();     // 비정상 종료(낙하 등)
 	//헬퍼
 	void ApplyMoveSpeed();
 	float GetBaseMoveSpeed() const; // 

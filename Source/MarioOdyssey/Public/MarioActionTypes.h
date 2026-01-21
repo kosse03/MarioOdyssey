@@ -21,7 +21,15 @@ enum class EMarioGroundAction : uint8
 	None  UMETA(DisplayName="None"),
 	Roll  UMETA(DisplayName="Roll"),         // 나중에 구현
 };
-
+//구르기
+UENUM(BlueprintType)
+enum class ERollPhase : uint8
+{
+	None  UMETA(DisplayName="None"),
+	Start UMETA(DisplayName="Start"),
+	Loop  UMETA(DisplayName="Loop"),
+	End   UMETA(DisplayName="End"),
+};
 // 그라운드 파운드 진행 단계
 UENUM(BlueprintType)
 enum class EGroundPoundPhase : uint8
@@ -31,3 +39,4 @@ enum class EGroundPoundPhase : uint8
 	Pounding   UMETA(DisplayName="Pounding"),
 	Stunned    UMETA(DisplayName="Stunned"),
 };
+
