@@ -152,6 +152,22 @@ void AMarioCharacter::Landed(const FHitResult& Hit)
 void AMarioCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
+	if (bIsRolling)
+	{
+		if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+		{
+			// 지상 롤만. 떨어지면 롤 취소(서서 일어나기 강제 X)
+			if (!MoveComp->IsMovingOnGround())
+			{
+				AbortRoll();
+			}
+			else
+			{
+				MoveComp->MaxWalkSpeed = RollSpeed;
+				AddMovementInput(RollDirection, 1.0f);
+			}
+		}
+	}
 	if (Controller) // 카메라 위치에 따른 보간(웅크리기)
 	{
 		const FRotator Current = Controller->GetControlRotation();
@@ -230,6 +246,7 @@ void AMarioCharacter::Move(const FInputActionValue& Value) // 이동
 	{
 		return;
 	}
+	if (bIsRolling) return;
 	const FVector2D Input = Value.Get<FVector2D>();
 	if (!Controller) return;
 	
@@ -284,7 +301,10 @@ void AMarioCharacter::OnCrouchReleased(const FInputActionValue& Value)
 {
 	// 물리적 홀드 상태는 언제든 해제 반영
 	bCrouchHeld = false;
-
+	
+	if (bIsRolling)
+		return;
+	
 	// 지상에서 실제 웅크림 상태였다면만 해제
 	if (GetCharacterMovement() && GetCharacterMovement()->IsMovingOnGround() && bIsCrouched)
 	{
@@ -301,6 +321,7 @@ void AMarioCharacter::UpdateDownhillBoost(float DeltaSeconds)
     // 특수 상태에서는 부스트 금지
     if (bIsDiving) { ForceDisableDownhillBoost(DeltaSeconds); return; }
     if (!State.CanMove()) { ForceDisableDownhillBoost(DeltaSeconds); return; }
+	if (bIsRolling) { ForceDisableDownhillBoost(DeltaSeconds); return; }
 	if (bIsCrouched || bCrouchHeld)
 	{
 		ForceDisableDownhillBoost(DeltaSeconds);
@@ -412,6 +433,7 @@ void AMarioCharacter::ForceDisableDownhillBoost(float DeltaSeconds)
 
 void AMarioCharacter::OnJumpPressed() // 3단 점프, 반동 점프 구현
 {
+	if (bIsRolling) return;
 	if (GetCharacterMovement()->IsFalling())
 	{
 		return;
@@ -504,6 +526,7 @@ void AMarioCharacter::OnRunReleased()
 // 엉덩방아
 void AMarioCharacter::OnGroundPoundPressed()
 {
+	if (bIsRolling) return;
 	if (GetCharacterMovement()->IsMovingOnGround())
 	{
 		return;
@@ -656,7 +679,7 @@ void AMarioCharacter::StartDiveFromCurrentContext()
 	GetWorld()->GetTimerManager().ClearTimer(GroundPoundPrepareTimer);
 	GetWorld()->GetTimerManager().ClearTimer(GroundPoundStunTimer);
 
-	// State 동기화(이게 Move() 막힘을 확실히 해제)
+	// State 동기화
 	State.GroundPound = EGroundPoundPhase::None;
 	State.AirAction = EMarioAirAction::Dive;
 
@@ -709,32 +732,161 @@ void AMarioCharacter::EndDive()
 
 bool AMarioCharacter::CanStartRoll() const
 {
+	const UCharacterMovementComponent* MoveComp = GetCharacterMovement();
+	if (!MoveComp) return false;
+
+	if (bIsRolling) return false;
+	if (!MoveComp->IsMovingOnGround()) return false;
+
+	// 웅크리기 상태에서만
+	if (!bIsCrouched) return false;
+
+	// 특수 상태에서는 금지
+	if (!State.CanMove()) return false; // GroundPound Preparing/Pounding/Stunned 포함
+	if (bIsDiving) return false;
+	if (bIsLongJumping || bIsBackflipping || bIsPoundJumping) return false;
+	if (bIsGroundPoundPreparing || bIsGroundPounding) return false;
+	if (bGroundPoundStunned || bWaitingForPoundJump) return false;
+
 	return true;
 }
 
 FVector AMarioCharacter::ComputeRollDirection() const
 {
-	return GetActorForwardVector().GetSafeNormal();
+	FVector Dir = GetLastMovementInputVector();
+	Dir.Z = 0.f;
+
+	if (!Dir.Normalize())
+	{
+		Dir = GetActorForwardVector();
+		Dir.Z = 0.f;
+		Dir.Normalize();
+	}
+	return Dir;
 }
 
 void AMarioCharacter::StartRoll()
 {
+	UCharacterMovementComponent* MoveComp = GetCharacterMovement();
+	if (!MoveComp) return;
+
+	bIsRolling = true;
+	RollPhase = ERollPhase::Start;
+	State.GroundAction = EMarioGroundAction::Roll;
+
+	// Shift를 “달리기”가 아니라 “롤 트리거”로 사용
+	bIsRunning = false;
+
+	RollDirection = ComputeRollDirection();
+
+	// 회전 고정(롤 방향)
+	MoveComp->bOrientRotationToMovement = false;
+	SetActorRotation(RollDirection.Rotation());
+
+	// 롤 파라미터 적용
+	MoveComp->GroundFriction = RollGroundFriction;
+	MoveComp->BrakingDecelerationWalking = RollBrakingDecel;
+	MoveComp->BrakingFrictionFactor = DefaultBrakingFrictionFactor;
+	MoveComp->MaxWalkSpeed = RollSpeed;
+
+	// 단계 전이 타이머
+	GetWorld()->GetTimerManager().ClearTimer(RollPhaseTimer);
+	GetWorld()->GetTimerManager().SetTimer(
+		RollPhaseTimer,
+		this,
+		&AMarioCharacter::EnterRollLoop,
+		RollStartDuration,
+		false
+	);
 }
 
 void AMarioCharacter::EnterRollLoop()
 {
+	if (!bIsRolling) return;
+
+	RollPhase = ERollPhase::Loop;
+
+	GetWorld()->GetTimerManager().ClearTimer(RollPhaseTimer);
+
+	if (RollLoopDuration <= 0.f)
+	{
+		return;
+	}
+
+	GetWorld()->GetTimerManager().SetTimer(
+		RollPhaseTimer,
+		this,
+		&AMarioCharacter::BeginRollEnd,
+		RollLoopDuration,
+		false
+	);
 }
 
 void AMarioCharacter::BeginRollEnd()
 {
+	if (!bIsRolling) return;
+
+	RollPhase = ERollPhase::End;
+
+	GetWorld()->GetTimerManager().ClearTimer(RollPhaseTimer);
+	GetWorld()->GetTimerManager().SetTimer(
+		RollPhaseTimer,
+		this,
+		&AMarioCharacter::FinishRoll,
+		RollEndDuration,
+		false
+	);
 }
 
 void AMarioCharacter::FinishRoll()
 {
+	if (!bIsRolling) return;
+
+	bIsRolling = false;
+	RollPhase = ERollPhase::None;
+	RollDirection = FVector::ZeroVector;
+
+	State.GroundAction = EMarioGroundAction::None;
+
+	GetWorld()->GetTimerManager().ClearTimer(RollPhaseTimer);
+
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		MoveComp->bOrientRotationToMovement = bDefaultOrientRotationToMovement;
+		MoveComp->GroundFriction = DefaultGroundFriction;
+		MoveComp->BrakingDecelerationWalking = DefaultBrakingDecelWalking;
+		MoveComp->BrakingFrictionFactor = DefaultBrakingFrictionFactor;
+	}
+
+	// 구르기 끝(일어나기)
+	bCrouchHeld = false;
+	if (bIsCrouched)
+	{
+		UnCrouch();
+	}
+
+	ApplyMoveSpeed();	
 }
 
 void AMarioCharacter::AbortRoll()
 {
+	if (!bIsRolling) return;
+
+	bIsRolling = false;
+	RollPhase = ERollPhase::None;
+	RollDirection = FVector::ZeroVector;
+
+	State.GroundAction = EMarioGroundAction::None;
+
+	GetWorld()->GetTimerManager().ClearTimer(RollPhaseTimer);
+
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		MoveComp->bOrientRotationToMovement = bDefaultOrientRotationToMovement;
+		MoveComp->GroundFriction = DefaultGroundFriction;
+		MoveComp->BrakingDecelerationWalking = DefaultBrakingDecelWalking;
+		MoveComp->BrakingFrictionFactor = DefaultBrakingFrictionFactor;
+	}
 }
 
 void AMarioCharacter::StartGroundPound()
@@ -770,6 +922,8 @@ void AMarioCharacter::EndPoundJumpWindow()
 
 void AMarioCharacter::ApplyMoveSpeed()
 {
+	if (bIsRolling)
+		return;
 	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
 	{
 		MoveComp->MaxWalkSpeed = GetBaseMoveSpeed();
