@@ -88,7 +88,7 @@ protected:
 	float JumpZ_Stage2 = 890.f;
 	
 	UPROPERTY(EditDefaultsOnly, Category = "Jump")
-	float JumpZ_Stage3 = 1030.f;
+	float JumpZ_Stage3 = 1230.f;
 	
 	void StartGroundPound();
 	void EndGroundPoundStun();
@@ -116,7 +116,7 @@ protected:
 	float Backflip_BackStrength = 200.f; // 백덤블링 후방 값
 
 	UPROPERTY(EditDefaultsOnly, Category="Mario|Backflip")
-	float Backflip_UpStrength = 1100.f; // 백덤블링 상승 값
+	float Backflip_UpStrength = 1200.f; // 백덤블링 상승 값
 
 	
 	UPROPERTY(BlueprintReadOnly, Category="State|Jump", meta=(AllowPrivateAccess="true"))
@@ -139,7 +139,7 @@ protected:
 	FVector RollDirection = FVector::ZeroVector;
 	
 	UPROPERTY(EditDefaultsOnly, Category="Mario|Roll")
-	float RollSpeed = 900.f;
+	float RollSpeed = 550.f;
 
 	UPROPERTY(EditDefaultsOnly, Category="Mario|Roll")
 	float RollStartDuration = 0.17f;   // RollStart 애니 길이
@@ -151,17 +151,35 @@ protected:
 	float RollEndDuration = 0.27f;     // RollEnd 애니 길이
 
 	UPROPERTY(EditDefaultsOnly, Category="Mario|Roll")
-	float RollGroundFriction = 0.5f;
+	float RollGroundFriction = 0.25f;
 
 	UPROPERTY(EditDefaultsOnly, Category="Mario|Roll")
-	float RollBrakingDecel = 256.f;
+	float RollBrakingDecel = 180.f;
 
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Roll")
+	float RollMaxAcceleration = 2000.f; // 롤 가속(앞으로 튕기게)
+
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Roll")
+	float RollSteerInterpSpeed = 3.f; // 롤 중 방향 전환(좌/우 조작)
+
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Roll")
+	float RollEndSpeed2D = 160.f; // 속도가 이 값 이하로 떨어지면 RollEnd로 전이
+
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Roll")
+	float RollReverseCancelDot = -0.35f; // 입력 방향이 이 값 이하(반대)이면 롤 종료
+
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Roll")
+	float RollStartForceInputTime = 0.18f; // 롤 시작 직후 짧게 전진 입력을 강제(시작 모션에 추진력 부여)
+
+	float RollStartForceInputRemaining = 0.f; // 시작 강제 추진 타이머
+	
 	FTimerHandle RollPhaseTimer;
 	
 	float DefaultGroundFriction = 8.f; // 이동값 캐싱 
 	float DefaultBrakingDecelWalking = 2048.f;
 	float DefaultBrakingFrictionFactor = 2.f;
 
+	FVector2D CachedMoveInput = FVector2D::ZeroVector;// move 입력 저장
 	
 	//엉덩방아
 	UPROPERTY(BlueprintReadOnly, Category = "State|GroundPound", meta=(AllowPrivateAccess="true"))
@@ -191,7 +209,7 @@ protected:
 	float GroundPoundStunTime = 1.43f; // 엉덩방아 후 경직 시간
 	
 	UPROPERTY(EditDefaultsOnly, Category = "GroundPound")
-	float PoundJumpZVelocity = 1100.f; //반동점프 크기
+	float PoundJumpZVelocity = 1200.f; //반동점프 크기
 	
 	FTimerHandle GroundPoundPrepareTimer;
 	FTimerHandle GroundPoundStunTimer;
@@ -219,13 +237,13 @@ protected:
 	float MinSlopeAngleDeg = 12.f;          // 이 각도 이상이면 내리막
 
 	UPROPERTY(EditDefaultsOnly, Category="Mario|SlopeBoost")
-	float BoostMaxAddSpeed = 250.f;         // 기본 RunSpeed + 최대 추가 속도
+	float BoostMaxAddSpeed = 400.f;         // 기본 RunSpeed + 최대 추가 속도
 
 	UPROPERTY(EditDefaultsOnly, Category="Mario|SlopeBoost")
-	float BoostRiseSpeed = 3.f;             // 부스트 올라가는 보간 속도
+	float BoostRiseSpeed = 1.5f;             // 부스트 올라가는 보간 속도
 
 	UPROPERTY(EditDefaultsOnly, Category="Mario|SlopeBoost")
-	float BoostDecaySpeed = 2.f;            // 부스트 내려가는 보간 속도
+	float BoostDecaySpeed = 1.f;            // 부스트 내려가는 보간 속도
 
 	UPROPERTY(EditDefaultsOnly, Category="Mario|SlopeBoost")
 	float BoostHoldTime = 2.35f;            // 부스트 시간 유지(부스트 어느정도 유지)
@@ -271,7 +289,8 @@ protected:
 	void EnterRollLoop();
 	void BeginRollEnd();
 	void FinishRoll();    // 정상 종료(End 애니 포함)
-	void AbortRoll();     // 비정상 종료(낙하 등)
+	void AbortRoll(bool bForceStandUp);     // 즉시 종료
+	void EndRollInternal(bool bForceStandUp);
 	//헬퍼
 	void ApplyMoveSpeed();
 	float GetBaseMoveSpeed() const; // 
