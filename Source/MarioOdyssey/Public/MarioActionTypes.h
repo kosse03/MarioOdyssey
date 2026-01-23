@@ -40,3 +40,24 @@ enum class EGroundPoundPhase : uint8
 	Stunned    UMETA(DisplayName="Stunned"),
 };
 
+//wall action Enum
+UENUM(BlueprintType)
+enum class EWallActionState : uint8
+{
+	None       UMETA(DisplayName="None"),
+	SlideStart UMETA(DisplayName="SlideStart"),
+	SlideLoop  UMETA(DisplayName="SlideLoop"),
+	WallKick   UMETA(DisplayName="WallKick"),
+};
+
+//ledge action Enum
+UENUM(BlueprintType)
+enum class ELedgeState : uint8
+{
+	None      UMETA(DisplayName="None"),
+	HangStart UMETA(DisplayName="HangStart"),
+	HangLoop  UMETA(DisplayName="HangLoop"),
+	MoveLeft  UMETA(DisplayName="MoveLeft"),
+	MoveRight UMETA(DisplayName="MoveRight"),
+	ClimbEnd  UMETA(DisplayName="ClimbEnd"),
+};

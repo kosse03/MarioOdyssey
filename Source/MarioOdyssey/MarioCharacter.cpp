@@ -7,7 +7,7 @@
 #include "GameFramework/SpringArmComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Components/CapsuleComponent.h"
-
+#include "Components/BoxComponent.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "InputActionValue.h"
@@ -43,6 +43,31 @@ AMarioCharacter::AMarioCharacter()
 	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
 	FollowCamera->SetupAttachment(SpringArm);
 	FollowCamera->bUsePawnControlRotation = false;
+	
+	//wall, ledge 디텍터 컴포넌트 생성, 조절
+	WallDetector = CreateDefaultSubobject<UBoxComponent>(TEXT("WallDetector"));
+	WallDetector->SetupAttachment(GetCapsuleComponent());
+	WallDetector->SetBoxExtent(FVector(5.f, 30.f, 45.f));
+	WallDetector->SetRelativeLocation(FVector(40.f, 0.f, -5.f));
+	WallDetector->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+	WallDetector->SetCollisionObjectType(ECC_WorldDynamic);
+	WallDetector->SetCollisionResponseToAllChannels(ECR_Ignore);
+	WallDetector->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Overlap);
+	WallDetector->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Overlap);
+	WallDetector->SetGenerateOverlapEvents(true);
+	WallDetector->SetCanEverAffectNavigation(false);
+
+	LedgeDetector = CreateDefaultSubobject<UBoxComponent>(TEXT("LedgeDetector"));
+	LedgeDetector->SetupAttachment(GetCapsuleComponent());
+	LedgeDetector->SetBoxExtent(FVector(10.f, 45.f, 25.f));
+	LedgeDetector->SetRelativeLocation(FVector(45.f, 0.f, 55.f));
+	LedgeDetector->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+	LedgeDetector->SetCollisionObjectType(ECC_WorldDynamic);
+	LedgeDetector->SetCollisionResponseToAllChannels(ECR_Ignore);
+	LedgeDetector->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Overlap);
+	LedgeDetector->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Overlap);
+	LedgeDetector->SetGenerateOverlapEvents(true);
+	LedgeDetector->SetCanEverAffectNavigation(false);
 	
 	//웅크리기
 	GetCharacterMovement()->GetNavAgentPropertiesRef().bCanCrouch = true;
@@ -87,7 +112,19 @@ void AMarioCharacter::BeginPlay()
 		DefaultGroundFriction = MoveComp->GroundFriction;
 		DefaultBrakingDecelWalking = MoveComp->BrakingDecelerationWalking;
 		DefaultBrakingFrictionFactor = MoveComp->BrakingFrictionFactor;
+	}
+	
+	// wall, ledge 디텍터 델리게이트 바인딩
+	if (WallDetector)
+	{
+		WallDetector->OnComponentBeginOverlap.AddDynamic(this, &AMarioCharacter::OnWallDetectorBeginOverlap);
+		WallDetector->OnComponentEndOverlap.AddDynamic(this, &AMarioCharacter::OnWallDetectorEndOverlap);
+	}
 
+	if (LedgeDetector)
+	{
+		LedgeDetector->OnComponentBeginOverlap.AddDynamic(this, &AMarioCharacter::OnLedgeDetectorBeginOverlap);
+		LedgeDetector->OnComponentEndOverlap.AddDynamic(this, &AMarioCharacter::OnLedgeDetectorEndOverlap);
 	}
 }
 
@@ -145,9 +182,106 @@ void AMarioCharacter::Landed(const FHitResult& Hit)
 	bIsLongJumping = false;
 	bIsBackflipping = false;
 	
+	GetWorld()->GetTimerManager().ClearTimer(WallKickStateTimer);
+
+	if (WallActionState != EWallActionState::None)
+	{
+		// Slide든 Kick이든 착지하면 종료
+		WallActionState = EWallActionState::None;
+		CurrentWallNormal = FVector::ZeroVector;
+		bWallOverlapping = false;
+	}
+	
+	GetWorld()->GetTimerManager().ClearTimer(WallKickInputLockTimer);
+	EndWallKickInputLock();
+	
 	ApplyMoveSpeed();
 }
 
+///디텍터 오버랩 콜백
+void AMarioCharacter::OnWallDetectorBeginOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
+	UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
+{
+	if (!OtherActor || OtherActor == this) return;
+
+	const float Now = GetWorld()->GetTimeSeconds();
+	const bool bFromWallKick = (WallActionState == EWallActionState::WallKick);
+
+	// WallKick 중이면 "연속 벽차기"를 위해 Slide 진입을 허용
+	// 단, Kick 직후 같은 벽 재포획(발사 순간 즉시 Slide로 다시 붙는 현상)만 아주 짧게 방지
+	if (bFromWallKick)
+	{
+		if ((Now - WallKickStartTime) < WallKickMinReenterDelay)
+		{
+			return;
+		}
+	}
+	else
+	{
+		// 2) WallKick이 아닌 경우는 기존처럼 None 상태에서만 진입 허용
+		if (WallActionState != EWallActionState::None)
+		{
+			return;
+		}
+
+		if (!IsWallActionCandidate())
+		{
+			return;
+		}
+	}
+
+	// 보조 스윕으로 법선/정면/수직벽 판정
+	FHitResult WallHit;
+	if (!TryGetWallHitFromDetector(SweepResult, WallHit))
+	{
+		return;
+	}
+
+	if (!PassesWallFilters(WallHit))
+	{
+		return;
+	}
+
+	// WallKick 도중에 다른 벽에 닿았으면 Kick 상태/잠금 타이머를 정리하고 Slide로 전환
+	if (bFromWallKick)
+	{
+		CancelWallKickForSlideEntry();
+	}
+
+	// SlideStart 진입
+	StartWallSlide(WallHit);
+}
+
+void AMarioCharacter::OnWallDetectorEndOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
+	UPrimitiveComponent* OtherComp, int32 OtherBodyIndex)
+{
+	if (!OtherActor || OtherActor == this) return;
+
+	bWallOverlapping = false;
+
+	// 스펙: wall 오버랩 취소 시 종료
+	// SlideStart/SlideLoop만 즉시 종료
+	if (WallActionState == EWallActionState::SlideStart || WallActionState == EWallActionState::SlideLoop)
+	{
+		ResetWallSlide();
+		return;
+	}
+}
+
+void AMarioCharacter::OnLedgeDetectorBeginOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
+	UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
+{
+	if (!OtherActor || OtherActor == this) return;
+	UE_LOG(LogTemp, Log, TEXT("[LedgeDetector] BeginOverlap: %s"), *OtherActor->GetName());
+}
+
+void AMarioCharacter::OnLedgeDetectorEndOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
+	UPrimitiveComponent* OtherComp, int32 OtherBodyIndex)
+{
+	if (!OtherActor || OtherActor == this) return;
+	UE_LOG(LogTemp, Log, TEXT("[LedgeDetector] EndOverlap: %s"), *OtherActor->GetName());
+}
+///
 
 void AMarioCharacter::Tick(float DeltaTime)
 {
@@ -314,6 +448,10 @@ void AMarioCharacter::OnEndCrouch(float HalfHeightAdjust, float ScaledHalfHeight
 
 void AMarioCharacter::Move(const FInputActionValue& Value) // 이동
 {
+	if (bWallKickInputLocked)
+	{
+		return;
+	}
 	if (!State.CanMove())
 		return;
 	if (bIsDiving)
@@ -513,6 +651,19 @@ void AMarioCharacter::OnJumpPressed() // 3단 점프, 반동 점프 구현
 	{
 		AbortRoll(true);
 	}
+	
+	if (WallActionState == EWallActionState::SlideStart || WallActionState == EWallActionState::SlideLoop)
+	{
+		ExecuteWallKick();
+		return;
+	}
+
+	// WallKick 상태 중에는 일반 점프 로직으로 들어가지 않게 방지
+	if (WallActionState == EWallActionState::WallKick)
+	{
+		return;
+	}
+	
 	if (GetCharacterMovement()->IsFalling())
 	{
 		return;
@@ -991,6 +1142,324 @@ void AMarioCharacter::EndRollInternal(bool bForceStandUp)
 	}
 
 	ApplyMoveSpeed();
+}
+// wall action
+bool AMarioCharacter::IsWallActionCandidate() const
+{
+	const UCharacterMovementComponent* MoveComp = GetCharacterMovement();
+	if (!MoveComp || !MoveComp->IsFalling())
+	{
+		return false;
+	}
+
+	// WallAction 대상: 일반 점프(1~3단) + 백덤블링 + 반동점프
+	// 제외: 롱점프/다이브/그라운드파운드 계열/롤
+	if (bIsLongJumping || bIsDiving || bIsRolling)
+	{
+		return false;
+	}
+
+	if (bIsGroundPoundPreparing || bIsGroundPounding || bGroundPoundStunned)
+	{
+		return false;
+	}
+
+	// 포함 백덤블링 / 반동점프
+	if (bIsBackflipping || bIsPoundJumping)
+	{
+		return true;
+	}
+
+	// 포함 일반 점프(1~3단)
+	return (JumpStage >= 1 && JumpStage <= 3);
+}
+
+bool AMarioCharacter::TryGetWallHitFromDetector(const FHitResult& SweepResult, FHitResult& OutHit) const
+{
+	// Overlap SweepResult에 노멀이 유효하게 들어오는 케이스 // 먼저 시도
+	if (!SweepResult.ImpactNormal.IsNearlyZero())
+	{
+		OutHit = SweepResult;
+		return true;
+	}
+
+	if (!WallDetector || !GetWorld())
+	{
+		return false;
+	}
+
+	const FVector Start = WallDetector->GetComponentLocation();
+	const FVector End   = Start + GetActorForwardVector() * WallTraceDistance;
+
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(WallSlideTrace), false, this);
+	Params.AddIgnoredActor(this);
+
+	const FCollisionShape Shape = FCollisionShape::MakeSphere(WallTraceRadius);
+
+	// Visibility로 1차 테스트
+	const bool bHit = GetWorld()->SweepSingleByChannel(
+		OutHit, Start, End, FQuat::Identity, ECC_Visibility, Shape, Params);
+
+	return bHit;
+}
+
+bool AMarioCharacter::PassesWallFilters(const FHitResult& WallHit) const
+{
+	if (!WallHit.bBlockingHit)
+	{
+		return false;
+	}
+
+	// 수직 벽 필터: 70~110도 허용
+	// Normal과 Up의 각도 = acos(Normal.Z)
+	// 70~110도면 Normal.Z가 [-cos70, +cos70] 범위
+	const float MaxAbsNormalZ = FMath::Cos(FMath::DegreesToRadians(70.f)); // 약 0.342
+	const FVector N = WallHit.ImpactNormal.GetSafeNormal();
+	if (FMath::Abs(N.Z) > MaxAbsNormalZ)
+	{
+		return false;
+	}
+
+	// "거의 정면" 접근 필터
+	// Forward 기반보다 "수평 속도 방향"이 백덤블링/반동점프에서 더 안정적
+	FVector Vel2D = GetVelocity();
+	Vel2D.Z = 0.f;
+
+	FVector ApproachDir = Vel2D.GetSafeNormal();
+	if (ApproachDir.IsNearlyZero())
+	{
+		ApproachDir = GetActorForwardVector();
+		ApproachDir.Z = 0.f;
+		ApproachDir.Normalize();
+	}
+
+	FVector WallNormal2D = N;
+	WallNormal2D.Z = 0.f;
+	WallNormal2D = WallNormal2D.GetSafeNormal();
+
+	if (WallNormal2D.IsNearlyZero())
+	{
+		return false;
+	}
+
+	const float FrontDot = FVector::DotProduct(ApproachDir, -WallNormal2D);
+	if (FrontDot < WallMinFrontDot)
+	{
+		return false;
+	}
+
+	return true;
+}
+
+void AMarioCharacter::StartWallSlide(const FHitResult& WallHit)
+{
+	// 상태 진입 (AnimBP용)
+	WallActionState = EWallActionState::SlideStart;
+
+	// 캐시
+	CurrentWallNormal = WallHit.ImpactNormal.GetSafeNormal();
+	bWallOverlapping = true;
+	
+	// Slide 중엔 정면을 벽 쪽으로 고정해야 함
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		MoveComp->bOrientRotationToMovement = false; // 이동방향 자동회전 OFF
+	}
+
+	// 벽 바라보게 즉시 회전 고정
+	FaceWallFromNormal(CurrentWallNormal);
+	
+	// 기존 공중기 플래그는 벽 상태로 "캔슬" 처리(애니 충돌 방지 목적)
+	bIsBackflipping = false;
+	bIsPoundJumping = false;
+	bIsLongJumping = false;
+
+	// Start -> Loop 전이 (타이머 사용)
+	GetWorld()->GetTimerManager().ClearTimer(WallSlideStartToLoopTimer);
+	GetWorld()->GetTimerManager().SetTimer(
+		WallSlideStartToLoopTimer, this, &AMarioCharacter::EnterWallSlideLoop,
+		WallSlideStartDuration, false);
+
+	UE_LOG(LogTemp, Log, TEXT("[Wall] Enter SlideStart  Normal=(%.2f %.2f %.2f)"),
+		CurrentWallNormal.X, CurrentWallNormal.Y, CurrentWallNormal.Z);
+}
+
+void AMarioCharacter::EnterWallSlideLoop()
+{
+	if (WallActionState == EWallActionState::SlideStart)
+	{
+		WallActionState = EWallActionState::SlideLoop;
+		UE_LOG(LogTemp, Log, TEXT("[Wall] Enter SlideLoop"));
+	}
+}
+
+void AMarioCharacter::ResetWallSlide()
+{
+	GetWorld()->GetTimerManager().ClearTimer(WallSlideStartToLoopTimer);
+
+	WallActionState = EWallActionState::None;
+	CurrentWallNormal = FVector::ZeroVector;
+	bWallOverlapping = false;
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		MoveComp->bOrientRotationToMovement = bDefaultOrientRotationToMovement;
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("[Wall] Reset -> None"));
+}
+
+void AMarioCharacter::ExecuteWallKick()
+{
+	// SlideStart/Loop에서만 허용
+	if (!(WallActionState == EWallActionState::SlideStart || WallActionState == EWallActionState::SlideLoop))
+	{
+		return;
+	}
+
+	// SlideStart->Loop 전이 타이머는 즉시 끊기
+	GetWorld()->GetTimerManager().ClearTimer(WallSlideStartToLoopTimer);
+
+	// WallKick 상태로 전환(AnimBP가 KickJump 애니 재생)
+	WallActionState = EWallActionState::WallKick;
+
+	// 재진입 쿨다운
+	WallReenterCooldownUntil = GetWorld()->GetTimeSeconds() + WallReenterCooldown;
+
+	// 방향: 벽 노멀의 XY만 사용해서 "벽 반대 방향"으로
+	FVector N = CurrentWallNormal;
+	N.Z = 0.f;
+	N = N.GetSafeNormal();
+
+	if (N.IsNearlyZero())
+	{
+		// 보험
+		N = -GetActorForwardVector();
+		N.Z = 0.f;
+		N.Normalize();
+	}
+
+	const FVector KickDir = -N; // 벽에서 떨어지는 방향
+	const FVector LaunchVel =
+		KickDir * WallKickHorizontalVelocity +
+		FVector(0.f, 0.f, WallKickVerticalVelocity);
+	
+	FaceDirection2D(KickDir);// 벽 반대 방향 캐릭터 방향 변경
+	
+	// 기존 공중기 플래그 정리(충돌 방지)
+	bIsBackflipping = false;
+	bIsPoundJumping = false;
+	bIsLongJumping = false;
+	bIsDiving = false;
+
+	WallKickStartTime = GetWorld()->GetTimeSeconds();
+	BeginWallKickInputLock(); 
+	
+	// 강제로 Falling 유지
+	GetCharacterMovement()->SetMovementMode(MOVE_Falling);
+
+	LaunchCharacter(LaunchVel, true, true);
+
+	// WallKick 상태는 잠깐 유지 후 None으로(애니 재생 창)
+	GetWorld()->GetTimerManager().ClearTimer(WallKickStateTimer);
+	GetWorld()->GetTimerManager().SetTimer(
+		WallKickStateTimer, this, &AMarioCharacter::EndWallKickState,
+		WallKickStateDuration, false);
+
+	UE_LOG(LogTemp, Log, TEXT("[Wall] Execute WallKick  Vel=(%.1f %.1f %.1f)"),
+		LaunchVel.X, LaunchVel.Y, LaunchVel.Z);
+}
+
+void AMarioCharacter::EndWallKickState()
+{
+	if (WallActionState == EWallActionState::WallKick)
+	{
+		WallActionState = EWallActionState::None;
+		CurrentWallNormal = FVector::ZeroVector;
+		UE_LOG(LogTemp, Log, TEXT("[Wall] End WallKick -> None"));
+	}
+}
+
+void AMarioCharacter::BeginWallKickInputLock()
+{
+	UCharacterMovementComponent* MoveComp = GetCharacterMovement();
+	if (!MoveComp || !GetWorld()) return;
+
+	if (bWallKickInputLocked)
+	{
+		return;
+	}
+
+	bWallKickInputLocked = true;
+
+	CachedAirControl = MoveComp->AirControl;
+	CachedMaxAcceleration = MoveComp->MaxAcceleration;
+
+	// 순간 조작을 막아서 반대로 튀는 방향이 안정되게
+	MoveComp->AirControl = 0.f;
+	MoveComp->MaxAcceleration = 0.f;
+	
+	MoveComp->bOrientRotationToMovement = false;
+	
+	GetWorld()->GetTimerManager().ClearTimer(WallKickInputLockTimer);
+	GetWorld()->GetTimerManager().SetTimer(
+		WallKickInputLockTimer, this, &AMarioCharacter::EndWallKickInputLock,
+		WallKickInputLockDuration, false);
+}
+
+void AMarioCharacter::EndWallKickInputLock()
+{
+	UCharacterMovementComponent* MoveComp = GetCharacterMovement();
+	if (!MoveComp) return;
+
+	if (!bWallKickInputLocked)
+	{
+		return;
+	}
+
+	bWallKickInputLocked = false;
+
+	MoveComp->AirControl = CachedAirControl;
+	MoveComp->MaxAcceleration = CachedMaxAcceleration;
+	
+	MoveComp->bOrientRotationToMovement = bDefaultOrientRotationToMovement;
+}
+
+void AMarioCharacter::CancelWallKickForSlideEntry()
+{
+	if (!GetWorld()) return;
+
+	// WallKick 상태를 유지하려는 타이머들 제거
+	GetWorld()->GetTimerManager().ClearTimer(WallKickStateTimer);
+	GetWorld()->GetTimerManager().ClearTimer(WallKickInputLockTimer);
+
+	// 이동 파라미터 복구
+	EndWallKickInputLock();
+}
+
+void AMarioCharacter::FaceDirection2D(const FVector& Dir)
+{
+	FVector D = Dir;
+	D.Z = 0.f;
+	if (D.IsNearlyZero())
+	{
+		return;
+	}
+	D.Normalize();
+
+	FRotator R = D.Rotation();
+	R.Pitch = 0.f;
+	R.Roll  = 0.f;
+	SetActorRotation(R);
+}
+
+void AMarioCharacter::FaceWallFromNormal(const FVector& WallNormal)
+{
+	FaceDirection2D(-WallNormal);
+}
+
+void AMarioCharacter::FaceAwayFromNormal(const FVector& WallNormal)
+{
+	FaceDirection2D(WallNormal);
 }
 
 void AMarioCharacter::ApplyMoveSpeed()

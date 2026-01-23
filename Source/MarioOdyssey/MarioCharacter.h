@@ -12,6 +12,7 @@
 
 class UCameraComponent;
 class USpringArmComponent;
+class UBoxComponent;
 struct FInputActionValue;
 
 UCLASS()
@@ -26,6 +27,23 @@ protected:
 	virtual void BeginPlay() override;
 	virtual void Landed(const FHitResult& Hit) override;//점프 OnLanded 오버라이드
 	
+	//wall, ledge 디텍터 컴포넌트 오버랩 함수
+	UFUNCTION()
+	void OnWallDetectorBeginOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
+		UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
+
+	UFUNCTION()
+	void OnWallDetectorEndOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
+		UPrimitiveComponent* OtherComp, int32 OtherBodyIndex);
+
+	UFUNCTION()
+	void OnLedgeDetectorBeginOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
+		UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
+
+	UFUNCTION()
+	void OnLedgeDetectorEndOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
+		UPrimitiveComponent* OtherComp, int32 OtherBodyIndex);
+	
 	//카메라
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera")
 	USpringArmComponent* SpringArm;
@@ -39,6 +57,13 @@ protected:
 	float CameraRotationInterpSpeed = 24.f;
 	
 	FVector SpringArmTargetOffset_Default = FVector::ZeroVector;
+	
+	//디텍터( wall, ledge 컴포넌트 포인터 )
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Detection", meta=(AllowPrivateAccess="true"))
+	UBoxComponent* WallDetector = nullptr; 
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Detection", meta=(AllowPrivateAccess="true"))
+	UBoxComponent* LedgeDetector = nullptr;
 	
 	//인풋
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
@@ -127,6 +152,63 @@ protected:
 	
 	UPROPERTY(BlueprintReadOnly, Category="State|Crouch", meta=(AllowPrivateAccess="true"))
 	bool bAnimIsCrouched = false; // 웅크리기 상태
+	
+	//wall action
+	UPROPERTY(BlueprintReadOnly, Category="State|Wall", meta=(AllowPrivateAccess="true"))
+	EWallActionState WallActionState = EWallActionState::None;
+	
+	UPROPERTY(BlueprintReadOnly, Category="State|Wall", meta=(AllowPrivateAccess="true"))
+	FVector CurrentWallNormal = FVector::ZeroVector;
+
+	UPROPERTY(BlueprintReadOnly, Category="State|Wall", meta=(AllowPrivateAccess="true"))
+	bool bWallOverlapping = false;
+
+	FTimerHandle WallSlideStartToLoopTimer;
+
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Wall")
+	float WallSlideStartDuration = 0.83f; // SlideStart -> SlideLoop 전이 시간
+
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Wall")
+	float WallTraceDistance = 35.f; // Overlap Begin 순간 보조 스윕 거리
+
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Wall")
+	float WallTraceRadius = 12.f; // 보조 스윕 반지름
+
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Wall")
+	float WallMinFrontDot = 0.75f; // "거의 정면" 접근 판정(0.7~0.85 튜닝)
+	
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Wall")
+	float WallKickHorizontalVelocity = -500.f; // 수평 이동
+
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Wall")
+	float WallKickVerticalVelocity = 920.f; // 수직 이동
+
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Wall")
+	float WallKickStateDuration = 0.1f; // WallKick 상태 유지 시간(AnimBP에서 KickJump 재생용)
+
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Wall")
+	float WallReenterCooldown = 0.08f;   // 벽차기 직후 즉시 재진입 방지
+
+	FTimerHandle WallKickStateTimer;
+	float WallReenterCooldownUntil = 0.f;
+	
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Wall")
+	float WallKickMinReenterDelay = 0.06f; // WallKick 직후 같은 벽 즉시 재포획 방지 (연속 킥 가능)
+
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Wall")
+	float WallKickInputLockDuration = 0.12f; // WallKick 직후 입력/가속 잠금 시간
+
+	FTimerHandle WallKickInputLockTimer;
+
+	float WallKickStartTime = -1000.f; // WallKick 시작 시각
+	bool bWallKickInputLocked = false;
+	
+	float CachedAirControl = 0.f;// 입력 잠금 동안 임시로 바꿀 이동 파라미터 캐시
+	float CachedMaxAcceleration = 0.f;
+	
+	//ledge action
+	UPROPERTY(BlueprintReadOnly, Category="State|Ledge", meta=(AllowPrivateAccess="true"))
+	ELedgeState LedgeActionState = ELedgeState::None;
 	
 	//구르기
 	UPROPERTY(BlueprintReadOnly, Category="State|Roll", meta=(AllowPrivateAccess="true"))
@@ -282,6 +364,7 @@ protected:
 	void DoBackflip();//백덤블링
 	void StartDiveFromCurrentContext();//다이브 시작
 	void EndDive();//다이브 끝
+	
 	// 구르기
 	bool CanStartRoll() const;
 	FVector ComputeRollDirection() const;
@@ -291,6 +374,26 @@ protected:
 	void FinishRoll();    // 정상 종료(End 애니 포함)
 	void AbortRoll(bool bForceStandUp);     // 즉시 종료
 	void EndRollInternal(bool bForceStandUp);
+	
+	//wall action
+	bool IsWallActionCandidate() const;
+	bool TryGetWallHitFromDetector(const FHitResult& SweepResult, FHitResult& OutHit) const;
+	bool PassesWallFilters(const FHitResult& WallHit) const;
+
+	void StartWallSlide(const FHitResult& WallHit);
+	void EnterWallSlideLoop();
+	void ResetWallSlide();
+	
+	void ExecuteWallKick();
+	void EndWallKickState();
+	
+	void BeginWallKickInputLock();
+	void EndWallKickInputLock();
+	void CancelWallKickForSlideEntry();
+	
+	void FaceDirection2D(const FVector& Dir);
+	void FaceWallFromNormal(const FVector& WallNormal);
+	void FaceAwayFromNormal(const FVector& WallNormal);
 	//헬퍼
 	void ApplyMoveSpeed();
 	float GetBaseMoveSpeed() const; // 
