@@ -84,6 +84,9 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	UInputAction* IA_Run;
 	
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	UInputAction* IA_ThrowCap;
+	
 	// 움직임 튜닝
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Move")
 	float WalkSpeed = 200.f;
@@ -98,6 +101,20 @@ protected:
 	bool bIsRunning = false;
 	
 	float DefaultGravityScale = 2.0f;
+	
+	//캐피액션
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Cap")
+	TSubclassOf<class AMarioCapProjectile> CapProjectileClass;
+	
+	UPROPERTY(VisibleInstanceOnly, Category="Mario|Cap")
+	TObjectPtr<AActor> ActiveCap = nullptr;
+	
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Cap")
+	float CapThrowSpeed = 1800.f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Cap")
+	FVector CapSpawnOffset = FVector(30.f, 0.f, 0.f); // 일단 캐릭터
+	
 	//점프
 	UPROPERTY(BlueprintReadOnly, Category = "State|Jump", meta=(AllowPrivateAccess="true"))
 	int32 JumpStage = 0; // 점프 단계
@@ -178,7 +195,7 @@ protected:
 	float WallMinFrontDot = 0.75f; // "거의 정면" 접근 판정(0.7~0.85 튜닝)
 	
 	UPROPERTY(EditDefaultsOnly, Category="Mario|Wall")
-	float WallKickHorizontalVelocity = -500.f; // 수평 이동
+	float WallKickHorizontalVelocity = 500.f; // 수평 이동
 
 	UPROPERTY(EditDefaultsOnly, Category="Mario|Wall")
 	float WallKickVerticalVelocity = 920.f; // 수직 이동
@@ -186,20 +203,42 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category="Mario|Wall")
 	float WallKickStateDuration = 0.1f; // WallKick 상태 유지 시간(AnimBP에서 KickJump 재생용)
 
-	UPROPERTY(EditDefaultsOnly, Category="Mario|Wall")
-	float WallReenterCooldown = 0.08f;   // 벽차기 직후 즉시 재진입 방지
-
 	FTimerHandle WallKickStateTimer;
-	float WallReenterCooldownUntil = 0.f;
-	
+	//EndOverlap 순간에 바로 Reset되지 않도록 유예(회전 고정/박스 얇음 때문에 바로 EndOverlap 나는 케이스 방지)
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Wall")
+	float WallEndOverlapGraceTime = 0.08f;
+
 	UPROPERTY(EditDefaultsOnly, Category="Mario|Wall")
 	float WallKickMinReenterDelay = 0.06f; // WallKick 직후 같은 벽 즉시 재포획 방지 (연속 킥 가능)
 
 	UPROPERTY(EditDefaultsOnly, Category="Mario|Wall")
 	float WallKickInputLockDuration = 0.12f; // WallKick 직후 입력/가속 잠금 시간
 
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Wall")
+	float WallKickSlideReenterWindow = 0.35f; // 벽차기 후 이 시간 동안은 Slide 재진입을 WallKick 경로로 처리
+	
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Wall")
+	float WallSlideMaxDownSpeed = 550.f;   // 아래로 떨어지는 속도 상한(큰 값 = 빨리 미끌)
+
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Wall")
+	float WallSlideGravityScale = 0.9f;    // 슬라이드 중 중력 스케일 (기본보다 낮추면 더 천천히 미끌)
+
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Wall")
+	float WallSlideAirControl = 0.05f;     // 슬라이드 중 공중 조작
+
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Wall")
+	float WallSlideMaxAcceleration = 200.f; // 슬라이드 중 가속(좌우 흔들림 억제)
+
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Wall")
+	float WallSlideBrakingDecelFalling = 2048.f; // 슬라이드 중 횡속 감쇠(선택)
+	
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Wall")
+	float WallSlideDownSpeed = 220.f; // 슬라이드 하강 속도- 가속 없이 일정
+	
 	FTimerHandle WallKickInputLockTimer;
 
+	FTimerHandle WallEndOverlapGraceTimer;
+	
 	float WallKickStartTime = -1000.f; // WallKick 시작 시각
 	bool bWallKickInputLocked = false;
 	
@@ -364,7 +403,9 @@ protected:
 	void DoBackflip();//백덤블링
 	void StartDiveFromCurrentContext();//다이브 시작
 	void EndDive();//다이브 끝
-	
+	void ThrowCap();// 캐피 액션 모자 던지기
+	UFUNCTION()
+	void OnCapDestroyed(AActor* DestroyedActor);
 	// 구르기
 	bool CanStartRoll() const;
 	FVector ComputeRollDirection() const;
@@ -384,12 +425,20 @@ protected:
 	void EnterWallSlideLoop();
 	void ResetWallSlide();
 	
+	void ApplyWallSlideMovementSettings(bool bEnable);
+	void UpdateWallSlidePhysics(float DeltaTime);
+	
 	void ExecuteWallKick();
 	void EndWallKickState();
 	
 	void BeginWallKickInputLock();
 	void EndWallKickInputLock();
 	void CancelWallKickForSlideEntry();
+	
+	void TryEnterWallSlideFromCurrentOverlap();
+	
+	// EndOverlap 이후 유예시간 뒤 실제로 벽이 떨어졌는지 재검증
+	void ConfirmWallContactAfterEndOverlap();
 	
 	void FaceDirection2D(const FVector& Dir);
 	void FaceWallFromNormal(const FVector& WallNormal);
