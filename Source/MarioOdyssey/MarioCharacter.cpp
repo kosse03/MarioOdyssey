@@ -3,6 +3,7 @@
 
 #include "MarioCharacter.h"
 #include "MarioCapProjectile.h"
+#include "Capture/CaptureComponent.h"
 #include "Camera/CameraComponent.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -26,6 +27,10 @@ AMarioCharacter::AMarioCharacter()
 	GetCharacterMovement()->BrakingDecelerationWalking = 2048.f;
 	
 	GetCharacterMovement()->GravityScale  = DefaultGravityScale;//점프 중력 스케일
+	
+	//캡쳐
+	CaptureComp = CreateDefaultSubobject<UCaptureComponent>(TEXT("CaptureComp"));
+
 	//카메라
 	SpringArm = CreateDefaultSubobject<USpringArmComponent>(TEXT("SpringArm"));
 	SpringArm->SetupAttachment(RootComponent);
@@ -470,6 +475,8 @@ void AMarioCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComp
 	if (IA_ThrowCap)
 	{
 		EIC->BindAction(IA_ThrowCap, ETriggerEvent::Started, this, &AMarioCharacter::ThrowCap);
+		EIC->BindAction(IA_ThrowCap, ETriggerEvent::Completed, this, &AMarioCharacter::OnThrowCapReleased);
+		EIC->BindAction(IA_ThrowCap, ETriggerEvent::Canceled,  this, &AMarioCharacter::OnThrowCapReleased);
 	}
 }
 
@@ -495,6 +502,16 @@ void AMarioCharacter::OnEndCrouch(float HalfHeightAdjust, float ScaledHalfHeight
 	}
 	bAnimIsCrouched = false; 
 	ApplyMoveSpeed();
+}
+
+void AMarioCharacter::OnThrowCapReleased()
+{
+	if (!ActiveCap) return;
+
+	if (AMarioCapProjectile* Cap = Cast<AMarioCapProjectile>(ActiveCap))
+	{
+		Cap->NotifyHoldReleased();
+	}
 }
 
 
@@ -1022,17 +1039,28 @@ void AMarioCharacter::EndDive()
 void AMarioCharacter::ThrowCap()
 {
 	if (ActiveCap) return;
-	
 	if (!CapProjectileClass) return;
 
 	UWorld* World = GetWorld();
 	if (!World) return;
 
+	// 던지기 애니
+	const bool bInAir = GetCharacterMovement() && GetCharacterMovement()->IsFalling();
+	if (bInAir)
+	{
+		if (Montage_ThrowCap_Air) PlayAnimMontage(Montage_ThrowCap_Air);
+	}
+	else
+	{
+		if (Montage_ThrowCap_Ground) PlayAnimMontage(Montage_ThrowCap_Ground);
+	}
+
 	const FVector SpawnLoc = GetActorLocation() + GetActorForwardVector() * CapSpawnOffset.X
 		+ GetActorRightVector() * CapSpawnOffset.Y
 		+ FVector(0.f, 0.f, CapSpawnOffset.Z);
 
-	const FRotator SpawnRot = GetActorRotation(); // 일단 캐릭터 정면 기준
+	const FRotator SpawnRot = GetActorRotation();
+
 	FActorSpawnParameters Params;
 	Params.Owner = this;
 	Params.Instigator = this;
@@ -1040,9 +1068,9 @@ void AMarioCharacter::ThrowCap()
 	AMarioCapProjectile* Cap = World->SpawnActor<AMarioCapProjectile>(CapProjectileClass, SpawnLoc, SpawnRot, Params);
 	if (!Cap) return;
 
-	ActiveCap = Cap; // 저장
-	Cap->OnDestroyed.AddDynamic(this, &AMarioCharacter::OnCapDestroyed); //돌아오면 해제
-	
+	ActiveCap = Cap;
+	Cap->OnDestroyed.AddDynamic(this, &AMarioCharacter::OnCapDestroyed);
+
 	const FVector Dir = GetActorForwardVector();
 	Cap->FireInDirection(Dir, CapThrowSpeed);
 }
@@ -1052,6 +1080,17 @@ void AMarioCharacter::OnCapDestroyed(AActor* DestroyedActor)
 	if (DestroyedActor && DestroyedActor == ActiveCap)
 	{
 		ActiveCap = nullptr;
+
+		// 잡는 애니
+		const bool bInAir = GetCharacterMovement() && GetCharacterMovement()->IsFalling();
+		if (bInAir)
+		{
+			if (Montage_CatchCap_Air) PlayAnimMontage(Montage_CatchCap_Air);
+		}
+		else
+		{
+			if (Montage_CatchCap_Ground) PlayAnimMontage(Montage_CatchCap_Ground);
+		}
 	}
 }
 

@@ -14,6 +14,7 @@ class UCameraComponent;
 class USpringArmComponent;
 class UBoxComponent;
 struct FInputActionValue;
+class UCaptureComponent;
 
 UCLASS()
 class MARIOODYSSEY_API AMarioCharacter : public ACharacter
@@ -22,10 +23,14 @@ class MARIOODYSSEY_API AMarioCharacter : public ACharacter
 
 public:
 	AMarioCharacter();
-
+	UCaptureComponent* GetCaptureComp() const { return CaptureComp; }
 protected:
 	virtual void BeginPlay() override;
 	virtual void Landed(const FHitResult& Hit) override;//점프 OnLanded 오버라이드
+	
+	//캡쳐 컴포넌트
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Mario|Capture", meta=(AllowPrivateAccess="true"))
+	UCaptureComponent* CaptureComp = nullptr;
 	
 	//wall, ledge 디텍터 컴포넌트 오버랩 함수
 	UFUNCTION()
@@ -114,6 +119,18 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, Category="Mario|Cap")
 	FVector CapSpawnOffset = FVector(30.f, 0.f, 0.f); // 일단 캐릭터
+	
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Cap|Anim")
+	UAnimMontage* Montage_ThrowCap_Ground = nullptr;
+
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Cap|Anim")
+	UAnimMontage* Montage_ThrowCap_Air = nullptr;
+
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Cap|Anim")
+	UAnimMontage* Montage_CatchCap_Ground = nullptr;
+
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Cap|Anim")
+	UAnimMontage* Montage_CatchCap_Air = nullptr;
 	
 	//점프
 	UPROPERTY(BlueprintReadOnly, Category = "State|Jump", meta=(AllowPrivateAccess="true"))
@@ -260,7 +277,7 @@ protected:
 	FVector RollDirection = FVector::ZeroVector;
 	
 	UPROPERTY(EditDefaultsOnly, Category="Mario|Roll")
-	float RollSpeed = 550.f;
+	float RollSpeed = 900.f;
 
 	UPROPERTY(EditDefaultsOnly, Category="Mario|Roll")
 	float RollStartDuration = 0.17f;   // RollStart 애니 길이
@@ -456,4 +473,6 @@ public:
 
 private:
 	FMarioState State;
+	
+	void OnThrowCapReleased();
 };
