@@ -401,6 +401,23 @@ protected:
 
 	float DownhillHoldRemaining = 0.f;
 	
+	//HP
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Mario|HP", meta=(AllowPrivateAccess="true"))
+	float MaxHP = 3.f;
+
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category="Mario|HP", meta=(AllowPrivateAccess="true"))
+	float CurrentHP = 3.f;
+
+	UPROPERTY(BlueprintReadOnly, Category="Mario|HP", meta=(AllowPrivateAccess="true"))
+	bool bGameOver = false;
+
+	UFUNCTION(BlueprintCallable, Category="Mario|HP")
+	float GetHP() const { return CurrentHP; }
+
+	UFUNCTION(BlueprintCallable, Category="Mario|HP")
+	bool IsGameOver() const { return bGameOver; }
+	
+	
 	//인풋 콜백
 	void Move(const FInputActionValue& Value);
 	void Look(const FInputActionValue& Value);
@@ -470,7 +487,8 @@ public:
 	
 	virtual void OnStartCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust) override;
 	virtual void OnEndCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust) override;
-
+	virtual float TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent,
+							 class AController* EventInstigator, AActor* DamageCauser) override;
 private:
 	FMarioState State;
 	

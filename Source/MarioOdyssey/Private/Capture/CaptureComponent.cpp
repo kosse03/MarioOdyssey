@@ -128,7 +128,11 @@ bool UCaptureComponent::ReleaseCapture(ECaptureReleaseReason Reason)
 	CachedPC->Possess(OriginalMario.Get());
 	CachedPC->SetViewTarget(OriginalMario.Get());
 	CachedPC->bAutoManageActiveCameraTarget = bPrevAutoManageCameraTarget;
-
+	// 굼바(캡쳐 대상)도 AI 컨트롤러 재생성/재포제스
+	if (CPawn && CPawn->GetController() == nullptr)
+	{
+		CPawn->SpawnDefaultController();
+	}
 	// 몬스터 측 해제 콜백(3초 스턴/탐지 복귀 등)
 	if (CActor && CActor->GetClass()->ImplementsInterface(UCapturableInterface::StaticClass()))
 	{

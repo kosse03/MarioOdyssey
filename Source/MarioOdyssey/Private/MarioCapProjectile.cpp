@@ -1,5 +1,9 @@
 #include "MarioCapProjectile.h"
 
+#include "Kismet/GameplayStatics.h"
+#include "Capture/CaptureComponent.h"
+#include "Capture/CapturableInterface.h"
+#include "GameFramework/Pawn.h"
 #include "Components/SphereComponent.h"
 #include "GameFramework/ProjectileMovementComponent.h"
 #include "GameFramework/RotatingMovementComponent.h"
@@ -15,7 +19,7 @@ AMarioCapProjectile::AMarioCapProjectile()
 	Collision->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 	Collision->SetCollisionObjectType(ECC_WorldDynamic);
 	Collision->SetCollisionResponseToAllChannels(ECR_Block);
-	Collision->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
+	Collision->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
 	Collision->SetNotifyRigidBodyCollision(true);
 
 	CapMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("CapMesh"));
@@ -182,13 +186,53 @@ void AMarioCapProjectile::BeginReturn()
 void AMarioCapProjectile::OnCapHit(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrimitiveComponent* OtherComp,
 	FVector NormalImpulse, const FHitResult& Hit)
 {
+	// Returning 중에는 캡쳐/데미지 라우팅 금지(귀환은 무시)
+	if (Phase == ECapPhase::Returning)
+	{
+		return;
+	}
+
 	bHasLastBlockNormal = Hit.bBlockingHit;
 	LastBlockNormal = Hit.Normal;
-	// 벽에 닿아도 “즉시 귀환”이 아니라 “제자리 체공 단계”로 들어가게
-	if (Phase != ECapPhase::Returning)
+
+	//모자 피격 라우팅
+	if (OtherActor && OwnerActor.IsValid() && OtherActor != OwnerActor.Get())
 	{
-		EnterHover();
+		// '캡쳐 대상'만 처리 (인터페이스 없는 건 기존처럼 벽 취급)
+		if (OtherActor->GetClass()->ImplementsInterface(UCapturableInterface::StaticClass()))
+		{
+			FCaptureContext Ctx;
+			Ctx.SourceActor = this;
+			Ctx.HitLocation = Hit.ImpactPoint;
+
+			if (APawn* OwnerPawn = Cast<APawn>(OwnerActor.Get()))
+			{
+				Ctx.InstigatorController = OwnerPawn->GetController();
+			}
+
+			// 캡쳐 시도
+			if (UCaptureComponent* CapComp = OwnerActor->FindComponentByClass<UCaptureComponent>())
+			{
+				if (CapComp->TryCapture(OtherActor, Ctx))
+				{
+					Destroy(); // 캡쳐 성공 시 모자는 종료
+					return;
+				}
+			}
+
+			// 캡쳐 불가면 데미지
+			UGameplayStatics::ApplyDamage(
+				OtherActor,
+				FailedCaptureDamage,
+				Ctx.InstigatorController,
+				this,
+				UDamageType::StaticClass()
+			);
+		}
 	}
+
+	// 기존 동작 유지: 벽/몬스터에 닿으면 Hover로 들어감
+	EnterHover();
 }
 
 void AMarioCapProjectile::OnProjectileStopped(const FHitResult& ImpactResult)

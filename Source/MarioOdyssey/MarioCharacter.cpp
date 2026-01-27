@@ -84,6 +84,8 @@ void AMarioCharacter::BeginPlay()
 {
 	Super::BeginPlay();
 	
+	CurrentHP = MaxHP;
+	
 	if (SpringArm)
 	{
 		SpringArmTargetOffset_Default = SpringArm->TargetOffset;
@@ -502,6 +504,34 @@ void AMarioCharacter::OnEndCrouch(float HalfHeightAdjust, float ScaledHalfHeight
 	}
 	bAnimIsCrouched = false; 
 	ApplyMoveSpeed();
+}
+
+float AMarioCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent,
+	class AController* EventInstigator, AActor* DamageCauser)
+{
+	if (bGameOver) return 0.f;
+	if (DamageAmount <= 0.f) return 0.f;
+
+	CurrentHP = FMath::Clamp(CurrentHP - DamageAmount, 0.f, MaxHP);
+
+	//여기서 피격 UI/사운드/무적시간
+	UE_LOG(LogTemp, Warning, TEXT("[Mario] Damage=%.2f HP=%.2f/%.2f"), DamageAmount, CurrentHP, MaxHP);
+
+	if (CurrentHP <= 0.f)
+	{
+		bGameOver = true;
+
+		// HP=0일 때만 캡쳐 해제
+		if (CaptureComp && CaptureComp->IsCapturing())
+		{
+			CaptureComp->ForceReleaseForGameOver();
+		}
+
+		// 최소 처리(원하면 여기서 게임오버 연출/입력막기 추가)
+		GetCharacterMovement()->StopMovementImmediately();
+	}
+
+	return DamageAmount;
 }
 
 void AMarioCharacter::OnThrowCapReleased()
@@ -1080,7 +1110,12 @@ void AMarioCharacter::OnCapDestroyed(AActor* DestroyedActor)
 	if (DestroyedActor && DestroyedActor == ActiveCap)
 	{
 		ActiveCap = nullptr;
-
+		
+		if (CaptureComp && CaptureComp->IsCapturing())
+		{
+			return;
+		}
+		
 		// 잡는 애니
 		const bool bInAir = GetCharacterMovement() && GetCharacterMovement()->IsFalling();
 		if (bInAir)

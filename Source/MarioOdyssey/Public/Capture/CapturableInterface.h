@@ -5,7 +5,7 @@
 #include "Capture/CaptureTypes.h"
 #include "CapturableInterface.generated.h"
 
-UINTERFACE(BlueprintType)
+UINTERFACE(BlueprintType, Blueprintable)
 class MARIOODYSSEY_API UCapturableInterface : public UInterface
 {
 	GENERATED_BODY()
@@ -18,11 +18,11 @@ class MARIOODYSSEY_API ICapturableInterface
 public:
 	// 캡쳐 가능 여부(불가면 데미지 처리 쪽으로)
 	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category="Capture")
-	bool CanBeCaptured(const FCaptureContext& Context) const;
+	bool CanBeCaptured(const FCaptureContext& Context);
 
 	// 실제로 Possess할 Pawn (자기 자신)
 	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category="Capture")
-	APawn* GetCapturePawn() const;
+	APawn* GetCapturePawn();
 
 	// 캡쳐 성공 시점(모자 표시/AI 정지 등)
 	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category="Capture")

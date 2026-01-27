@@ -56,7 +56,9 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, Category="Cap")
 	URotatingMovementComponent* RotMove;
-
+	
+	UPROPERTY(EditDefaultsOnly, Category="Cap|Combat")
+	float FailedCaptureDamage = 1.f;
 	// ---- 타이밍 ----
 	UPROPERTY(EditDefaultsOnly, Category="Cap|Timing")
 	float OutgoingDuration = 0.2f;   // 0.1초 빠르게 전진
