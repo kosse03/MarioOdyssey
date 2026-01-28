@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "TimerManager.h"
 #include "GameFramework/Character.h"
 #include "Capture/CapturableInterface.h"
 #include "Components/SphereComponent.h"
@@ -10,6 +11,7 @@
 struct FInputActionValue;
 class AMarioCharacter;
 class AAIController;
+class UInputAction;
 
 UENUM(BlueprintType)
 enum class EGoombaAIState : uint8
@@ -58,10 +60,32 @@ protected:
 							   const FHitResult& SweepResult);
 
 	// Input 캡쳐 중 C키 해제용: IA_Crouch 재사용 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Input")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Goomba|Input")
 	TObjectPtr<UInputAction> IA_Crouch = nullptr;
-
 	void OnReleaseCapturePressed(const FInputActionValue& Value);
+	
+	//움직임
+	UPROPERTY(EditDefaultsOnly, Category="Goomba|Input")
+	TObjectPtr<UInputAction> IA_Move;
+	UPROPERTY(EditDefaultsOnly, Category="Goomba|Move")
+	float CapturedWalkSpeed = 200.f;
+	
+	UPROPERTY(EditDefaultsOnly, Category="Goomba|Input")
+	TObjectPtr<const UInputAction> IA_Run = nullptr;
+	UPROPERTY(EditDefaultsOnly, Category="Goomba|Move")
+	float CapturedRunSpeed = 500.f;
+	
+	UPROPERTY(EditDefaultsOnly, Category="Goomba|Input")
+	TObjectPtr<const UInputAction> IA_Jump = nullptr;
+	UPROPERTY(EditDefaultsOnly, Category="Goomba|Move")
+	float CapturedJumpZVelocity = 520.f;
+	
+	
+	//카메라
+	UPROPERTY(EditDefaultsOnly, Category="Goomba|Input")
+	TObjectPtr<UInputAction> IA_Look;
+	void Input_Look(const FInputActionValue& Value);
+
 
 	// AI 튜닝값 
 	UPROPERTY(EditDefaultsOnly, Category="Goomba|AI")
@@ -85,12 +109,26 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category="Goomba|AI")
 	float ReturnHomeAfterSeconds = 30.f;
 
+	//언캡쳐 후 스턴
+	UPROPERTY(EditDefaultsOnly, Category="Goomba|AI")
+	float ReleaseStunSeconds = 3.f;
+	
+	//캡쳐 중 피격 스턴
+	UPROPERTY(EditDefaultsOnly, Category="Goomba|Combat")
+	float CapturedHitStunSeconds = 1.5f;
+	
+	UPROPERTY(EditDefaultsOnly, Category="Goomba|Combat")
+	float CapturedHitKnockbackStrength = 650.f;
+	
+	UPROPERTY(EditDefaultsOnly, Category="Goomba|Combat")
+	float CapturedHitKnockbackUp = 140.f;
+	
 	//ICapturableInterface (일단 “캡쳐 가능” 기본)
 	virtual bool CanBeCaptured_Implementation(const FCaptureContext& Context) override { return true; }
 	virtual APawn* GetCapturePawn_Implementation() override { return this; }
 	virtual void OnCaptured_Implementation(AController* Capturer, const FCaptureContext& Context) override;
 	virtual void OnReleased_Implementation(const FCaptureReleaseContext& Context) override;
-	virtual void OnCapturedPawnDamaged_Implementation(float Damage, AController* InstigatorController, AActor* DamageCauser) override {}
+	virtual void OnCapturedPawnDamaged_Implementation(float Damage, AController* InstigatorController, AActor* DamageCauser) override;
 
 	//서칭콘 디버그용//////////////////////////////////////
 	UPROPERTY(EditAnywhere, Category="Goomba|Debug")
@@ -118,7 +156,34 @@ private:
 	// 캡쳐 상태
 	bool bIsCaptured = false;
 	TWeakObjectPtr<AMarioCharacter> CapturingMario;
+	
+	//달리기, 점프, 걷기 
+	bool bRunHeld = false;
+	float DefaultJumpZVelocity = 0.f;
+	
+	void ApplyCapturedMoveParams();
+	
+	void Input_Move(const FInputActionValue& Value);
+	void Input_RunStarted(const FInputActionValue& Value);
+	void Input_RunCompleted(const FInputActionValue& Value);
+	void Input_JumpStarted(const FInputActionValue& Value);
+	void Input_JumpCompleted(const FInputActionValue& Value);
+	
+	//캡쳐중 카메라 충돌 해결
+	bool bSavedCameraCollision = false;
+	ECollisionResponse PrevCapsuleCameraResponse = ECR_Block;
+	ECollisionResponse PrevMeshCameraResponse = ECR_Block;
 
+	void SetCapturedCameraCollision(bool bCaptured);
+	
+	//캡쳐 중 피격 스턴
+	bool bInputLocked = false;
+	FTimerHandle CapturedHitStunTimer;
+	void ClearCapturedHitStun();
+	
+	//해제 후 스턴
+	float StunRemain = 0.f;
+	
 	// AI 상태
 	EGoombaAIState State = EGoombaAIState::Stunned;
 	FVector HomeLocation = FVector::ZeroVector;
@@ -128,18 +193,17 @@ private:
 
 	float LookAroundRemain = 0.f;
 	float ReturnHomeTimer = 0.f;
-
-private:
+	
 	void SetState(EGoombaAIState NewState);
 
-	AMarioCharacter* GetPlayerMario() const;
-	bool CanDetectPlayer(const AMarioCharacter* Mario) const;
+	AActor* GetPlayerTargetActor() const;
+	bool CanDetectTarget(const AActor* Target) const;
 
 	AAIController* GetAICon() const;
 	void StopAIMove();
 
 	void UpdatePatrol(float Dt);
-	void UpdateChase(float Dt, AMarioCharacter* Mario);
+	void UpdateChase(float Dt, AActor* Target);
 	void UpdateLookAround(float Dt);
 	void UpdateReturnHome(float Dt);
 };

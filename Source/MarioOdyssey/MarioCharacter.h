@@ -15,6 +15,7 @@ class USpringArmComponent;
 class UBoxComponent;
 struct FInputActionValue;
 class UCaptureComponent;
+class APlayerController;
 
 UCLASS()
 class MARIOODYSSEY_API AMarioCharacter : public ACharacter
@@ -24,6 +25,12 @@ class MARIOODYSSEY_API AMarioCharacter : public ACharacter
 public:
 	AMarioCharacter();
 	UCaptureComponent* GetCaptureComp() const { return CaptureComp; }
+	
+	UFUNCTION(BlueprintCallable, Category="Mario|Capture")
+	void OnCaptureBegin();
+	UFUNCTION(BlueprintCallable, Category="Mario|Capture")
+	void OnCaptureEnd();
+	
 protected:
 	virtual void BeginPlay() override;
 	virtual void Landed(const FHitResult& Hit) override;//점프 OnLanded 오버라이드
@@ -489,8 +496,20 @@ public:
 	virtual void OnEndCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust) override;
 	virtual float TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent,
 							 class AController* EventInstigator, AActor* DamageCauser) override;
+	//캡쳐 카메라 세팅
+	virtual FRotator GetViewRotation() const override;
+	void SetCaptureControlRotationOverride(bool bEnable);
+	void SetCaptureControlRotation(const FRotator& InRot);
+	void CaptureFeedLookInput(const FInputActionValue& Value);
+	void CaptureSyncTargetControlRotation(const FRotator& InRot);
+	void CaptureTickCamera(float DeltaTime, APlayerController* PC);
+	
 private:
 	FMarioState State;
 	
 	void OnThrowCapReleased();
+	
+	//캡쳐 카메라 세팅
+	bool bCaptureControlRotOverride = false;
+	FRotator CaptureControlRot = FRotator::ZeroRotator;
 };

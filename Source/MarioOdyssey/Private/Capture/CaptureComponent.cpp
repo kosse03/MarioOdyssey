@@ -40,6 +40,12 @@ void UCaptureComponent::TickComponent(float DeltaTime, ELevelTick TickType, FAct
 		// Possess로 인해 자동 카메라 타겟 관리가 다시 켜질 수 있으니 방어
 		CachedPC->bAutoManageActiveCameraTarget = false;
 	}
+	
+	if (OriginalMario.IsValid() && CachedPC.IsValid())
+	{
+		OriginalMario->CaptureTickCamera(DeltaTime, CachedPC.Get());
+	}
+	
 }
 
 void UCaptureComponent::CachePlayerControllerIfNeeded()
@@ -83,11 +89,17 @@ bool UCaptureComponent::TryCapture(AActor* TargetActor, const FCaptureContext& C
 
 	// 몬스터 측 캡쳐 진입 콜백(모자 표시/AI 정지 등)
 	ICapturableInterface::Execute_OnCaptured(TargetActor, CachedPC.Get(), Context);
-
+	
+	OriginalMario->OnCaptureBegin();//상태 정리
+	
 	// 마리오 숨김/비활성 + Attach
 	ApplyMarioCaptureHide(true);
 	AttachMarioToCapturedPawn();
-
+	
+	//카메라
+	OriginalMario->SetCaptureControlRotationOverride(true);
+	OriginalMario->CaptureSyncTargetControlRotation(CachedPC->GetControlRotation());
+	OriginalMario->SetCaptureControlRotation(CachedPC->GetControlRotation());
 	// 컨트롤: 몬스터 Possess, 카메라: 마리오 유지
 	bPrevAutoManageCameraTarget = CachedPC->bAutoManageActiveCameraTarget;
 	CachedPC->bAutoManageActiveCameraTarget = false;
@@ -128,6 +140,14 @@ bool UCaptureComponent::ReleaseCapture(ECaptureReleaseReason Reason)
 	CachedPC->Possess(OriginalMario.Get());
 	CachedPC->SetViewTarget(OriginalMario.Get());
 	CachedPC->bAutoManageActiveCameraTarget = bPrevAutoManageCameraTarget;
+	
+	OriginalMario->OnCaptureEnd();//마리오 상태 정리
+	
+	if (OriginalMario.IsValid())
+	{
+		OriginalMario->SetCaptureControlRotationOverride(false);
+	}
+	
 	// 굼바(캡쳐 대상)도 AI 컨트롤러 재생성/재포제스
 	if (CPawn && CPawn->GetController() == nullptr)
 	{
@@ -140,7 +160,7 @@ bool UCaptureComponent::ReleaseCapture(ECaptureReleaseReason Reason)
 		Rctx.Reason = Reason;
 		Rctx.ReleasedBy = OriginalMario.Get();
 		Rctx.ExitLocation = ExitLoc;
-
+		
 		ICapturableInterface::Execute_OnReleased(CActor, Rctx);
 	}
 

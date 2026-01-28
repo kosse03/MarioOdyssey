@@ -12,6 +12,8 @@
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "InputActionValue.h"
+#include "Animation/AnimInstance.h"
+#include "Components/SkeletalMeshComponent.h"
 
 
 AMarioCharacter::AMarioCharacter()
@@ -77,6 +79,174 @@ AMarioCharacter::AMarioCharacter()
 	//웅크리기
 	GetCharacterMovement()->GetNavAgentPropertiesRef().bCanCrouch = true;
 	GetCharacterMovement()->SetCrouchedHalfHeight(35.0f);
+	ApplyMoveSpeed();
+}
+
+void AMarioCharacter::OnCaptureBegin()
+{
+	//애니메이션(던지기/구르기/그라운드파운드)잔여물 정리
+	if (USkeletalMeshComponent* MeshComp = GetMesh())
+	{
+		if (UAnimInstance* Anim = MeshComp->GetAnimInstance())
+		{
+			Anim->StopAllMontages(0.05f);
+		}
+	}
+	
+	//Roll 정리
+	if (bIsRolling)
+	{
+		AbortRoll(true);
+	}
+	
+	//Dive 정리
+	EndDive();
+	
+	//GroundPound, 반동점프 정리
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(GroundPoundPrepareTimer);
+		World->GetTimerManager().ClearTimer(GroundPoundStunTimer);
+	}
+	bIsGroundPoundPreparing = false;
+	bIsGroundPounding = false;
+	bGroundPoundStunned = false;
+	bIsPoundJumping = false;
+	bGroundPoundUsed = false;
+	EndPoundJumpWindow();
+	State.GroundPound = EGroundPoundPhase::None;
+	
+	//Wall action 정리
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(WallSlideStartToLoopTimer);
+		World->GetTimerManager().ClearTimer(WallKickStateTimer);
+		World->GetTimerManager().ClearTimer(WallKickInputLockTimer);
+		World->GetTimerManager().ClearTimer(WallEndOverlapGraceTimer);
+	}
+	bWallOverlapping = false;
+	bWallKickInputLocked = false;
+	WallKickStartTime = -1000.f;
+	if (WallActionState != EWallActionState::None)
+	{
+		ResetWallSlide();
+	}
+	else
+	{
+		CurrentWallNormal = FVector::ZeroVector;
+	}
+	
+	//점프, 특수 점프 정리
+	JumpStage = 0;
+	LastLandedTime = -1.f;
+	bIsLongJumping = false;
+	bIsBackflipping = false;
+	
+	//슬로프 부스트 정리
+	bIsDownhillBoosting = false;
+	DownhillHoldRemaining = 0.f;
+	DownhillBoostAlpha = 0.f;
+	
+	//캐시 정리
+	CachedMoveInput = FVector2D::ZeroVector;
+	
+	//웅크리기, 달리기 정리
+	bIsRunning = false;
+	bCrouchHeld = false;
+	CrouchStartSpeed2D = 0.f;
+	if(bIsCrouched)
+	{
+		UnCrouch();
+	}
+	bAnimIsCrouched = false;
+	
+	//State 컨테이너 정리
+	State = FMarioState{};
+	
+	//물리, 이동 원복
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		MoveComp->StopMovementImmediately();
+		MoveComp->GravityScale = DefaultGravityScale;
+		MoveComp->AirControl = DefaultAirControl;
+		MoveComp->MaxAcceleration = DefaultMaxAcceleration;
+		MoveComp->BrakingDecelerationFalling = DefaultBrakingDecelFalling;
+		MoveComp->bOrientRotationToMovement = bDefaultOrientRotationToMovement;
+		MoveComp->GroundFriction = DefaultGroundFriction;
+		MoveComp->BrakingDecelerationWalking = DefaultBrakingDecelWalking;
+		MoveComp->BrakingFrictionFactor = DefaultBrakingFrictionFactor;
+	}
+	ApplyMoveSpeed();
+}
+
+void AMarioCharacter::OnCaptureEnd()
+{
+	//언캡쳐 후, 마리오 조작 가능 상태 복귀
+	if (bIsRolling) AbortRoll(true);
+	EndDive();
+	if (WallActionState != EWallActionState::None) ResetWallSlide();
+	
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(GroundPoundPrepareTimer);
+		World->GetTimerManager().ClearTimer(GroundPoundStunTimer);
+		World->GetTimerManager().ClearTimer(WallKickStateTimer);
+		World->GetTimerManager().ClearTimer(WallKickInputLockTimer);
+		World->GetTimerManager().ClearTimer(WallEndOverlapGraceTimer);
+		World->GetTimerManager().ClearTimer(RollPhaseTimer);
+	}
+	bIsGroundPoundPreparing = false;
+	bIsGroundPounding = false;
+	bGroundPoundStunned = false;
+	bIsPoundJumping = false;
+	EndPoundJumpWindow();
+	State.GroundPound = EGroundPoundPhase::None;
+	
+	bWallOverlapping = false;
+	bWallKickInputLocked = false;
+	WallKickStartTime = -1000.f;
+	
+	bIsRunning = false;
+	bCrouchHeld = false;
+	CrouchStartSpeed2D = 0.f;
+	
+	if (bIsCrouched)
+	{
+		UnCrouch();
+	}
+	bAnimIsCrouched = false;
+	
+	JumpStage = 0;
+	LastLandedTime = -1.f;
+	bIsLongJumping = false;
+	bIsBackflipping = false;
+	
+	bIsDownhillBoosting = false;
+	DownhillBoostAlpha = 0.f;
+	DownhillHoldRemaining = 0.f;
+	
+	CachedMoveInput = FVector2D::ZeroVector;
+	
+	State = FMarioState{};
+	
+	//카메라 보간 타겟 컨트롤 로데이션 맞추기
+	if (Controller)
+	{
+		TargetControlRotation = Controller->GetControlRotation();
+	}
+	
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		MoveComp->GravityScale = DefaultGravityScale;
+		MoveComp->AirControl = DefaultAirControl;
+		MoveComp->MaxAcceleration = DefaultMaxAcceleration;
+		MoveComp->BrakingDecelerationFalling = DefaultBrakingDecelFalling;
+		MoveComp->bOrientRotationToMovement = bDefaultOrientRotationToMovement;
+		MoveComp->GroundFriction = DefaultGroundFriction;
+		MoveComp->BrakingDecelerationWalking = DefaultBrakingDecelWalking;
+		MoveComp->BrakingFrictionFactor = DefaultBrakingFrictionFactor;
+	}
+	
 	ApplyMoveSpeed();
 }
 
@@ -513,7 +683,7 @@ float AMarioCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const&
 	if (DamageAmount <= 0.f) return 0.f;
 
 	CurrentHP = FMath::Clamp(CurrentHP - DamageAmount, 0.f, MaxHP);
-
+	
 	//여기서 피격 UI/사운드/무적시간
 	UE_LOG(LogTemp, Warning, TEXT("[Mario] Damage=%.2f HP=%.2f/%.2f"), DamageAmount, CurrentHP, MaxHP);
 
@@ -527,7 +697,7 @@ float AMarioCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const&
 			CaptureComp->ForceReleaseForGameOver();
 		}
 
-		// 최소 처리(원하면 여기서 게임오버 연출/입력막기 추가)
+		// 최소 처리
 		GetCharacterMovement()->StopMovementImmediately();
 	}
 
@@ -1884,3 +2054,48 @@ float AMarioCharacter::GetBaseMoveSpeed() const
 	return Speed;
 }
 
+FRotator AMarioCharacter::GetViewRotation() const
+{
+	if (bCaptureControlRotOverride)
+	{
+		return CaptureControlRot;
+	}
+	return Super::GetViewRotation();
+}
+
+void AMarioCharacter::SetCaptureControlRotationOverride(bool bEnable)
+{
+	bCaptureControlRotOverride = bEnable;
+}
+
+void AMarioCharacter::SetCaptureControlRotation(const FRotator& InRot)
+{
+	CaptureControlRot = InRot;
+}
+
+void AMarioCharacter::CaptureFeedLookInput(const FInputActionValue& Value)
+{
+	Look(Value);
+}
+
+void AMarioCharacter::CaptureSyncTargetControlRotation(const FRotator& InRot)
+{
+	TargetControlRotation = InRot;
+}
+
+void AMarioCharacter::CaptureTickCamera(float DeltaTime, APlayerController* PC)
+{
+	if (!bCaptureControlRotOverride) return;
+	if (!PC) return;
+
+	const FRotator Current = PC->GetControlRotation();
+	const FRotator Smoothed = FMath::RInterpTo(
+		Current,
+		TargetControlRotation,
+		DeltaTime,
+		CameraRotationInterpSpeed
+	);
+
+	PC->SetControlRotation(Smoothed);
+	SetCaptureControlRotation(Smoothed); // GetViewRotation()이 이 값을 반환
+}
