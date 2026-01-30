@@ -169,13 +169,6 @@ private:
 	void Input_JumpStarted(const FInputActionValue& Value);
 	void Input_JumpCompleted(const FInputActionValue& Value);
 	
-	//캡쳐중 카메라 충돌 해결
-	bool bSavedCameraCollision = false;
-	ECollisionResponse PrevCapsuleCameraResponse = ECR_Block;
-	ECollisionResponse PrevMeshCameraResponse = ECR_Block;
-
-	void SetCapturedCameraCollision(bool bCaptured);
-	
 	//캡쳐 중 피격 스턴
 	bool bInputLocked = false;
 	FTimerHandle CapturedHitStunTimer;

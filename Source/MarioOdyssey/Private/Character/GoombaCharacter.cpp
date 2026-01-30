@@ -7,7 +7,6 @@
 #include "Kismet/GameplayStatics.h"
 #include "NavigationSystem.h"
 #include "GameFramework/CharacterMovementComponent.h"
-#include "Components/CapsuleComponent.h"
 
 #include "MarioOdyssey/MarioCharacter.h"
 #include "Capture/CaptureComponent.h"
@@ -27,10 +26,6 @@ AGoombaCharacter::AGoombaCharacter()
 	ContactSphere = CreateDefaultSubobject<USphereComponent>(TEXT("ContactSphere"));
 	ContactSphere->SetupAttachment(RootComponent);
 	ContactSphere->InitSphereRadius(70.f);
-	ContactSphere->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
-	ContactSphere->SetCollisionResponseToAllChannels(ECR_Ignore);
-	ContactSphere->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
-	ContactSphere->SetGenerateOverlapEvents(true);
 
 	ContactSphere->OnComponentBeginOverlap.AddDynamic(this, &AGoombaCharacter::OnContactBeginOverlap);
 }
@@ -235,7 +230,6 @@ void AGoombaCharacter::Input_Look(const FInputActionValue& Value)
 void AGoombaCharacter::OnCaptured_Implementation(AController* Capturer, const FCaptureContext& Context)
 {
 	bIsCaptured = true;
-	SetCapturedCameraCollision(true);
 	StopAIMove();
 	SetState(EGoombaAIState::Stunned); // 캡쳐 중 AI 안 돎
 	GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
@@ -255,7 +249,6 @@ void AGoombaCharacter::OnCaptured_Implementation(AController* Capturer, const FC
 void AGoombaCharacter::OnReleased_Implementation(const FCaptureReleaseContext& Context)
 {
 	bIsCaptured = false;
-	SetCapturedCameraCollision(false);
 	bRunHeld = false;
 	bInputLocked = false;
 	if (UWorld* World = GetWorld())
@@ -342,43 +335,6 @@ void AGoombaCharacter::DrawSearchConeDebug() const
 	if (bDetected && Target)
 	{
 		DrawDebugLine(World, Origin, Target->GetActorLocation(), FColor::Red, false, 0.f, 0, 1.5f);
-	}
-}
-
-void AGoombaCharacter::SetCapturedCameraCollision(bool bCaptured)
-{
-	UCapsuleComponent* Capsule = GetCapsuleComponent();
-	USkeletalMeshComponent* MeshComp = GetMesh();
-	if (!Capsule) return;
-
-	if (bCaptured)
-	{
-		if (!bSavedCameraCollision)
-		{
-			PrevCapsuleCameraResponse = Capsule->GetCollisionResponseToChannel(ECC_Camera);
-			if (MeshComp)
-			{
-				PrevMeshCameraResponse = MeshComp->GetCollisionResponseToChannel(ECC_Camera);
-			}
-			bSavedCameraCollision = true;
-		}
-
-		Capsule->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
-		if (MeshComp)
-		{
-			MeshComp->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
-		}
-	}
-	else
-	{
-		if (!bSavedCameraCollision) return;
-
-		Capsule->SetCollisionResponseToChannel(ECC_Camera, PrevCapsuleCameraResponse);
-		if (MeshComp)
-		{
-			MeshComp->SetCollisionResponseToChannel(ECC_Camera, PrevMeshCameraResponse);
-		}
-		bSavedCameraCollision = false;
 	}
 }
 

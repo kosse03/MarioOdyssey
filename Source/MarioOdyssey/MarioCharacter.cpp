@@ -56,24 +56,12 @@ AMarioCharacter::AMarioCharacter()
 	WallDetector->SetupAttachment(GetCapsuleComponent());
 	WallDetector->SetBoxExtent(FVector(5.f, 30.f, 45.f));
 	WallDetector->SetRelativeLocation(FVector(40.f, 0.f, -5.f));
-	WallDetector->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
-	WallDetector->SetCollisionObjectType(ECC_WorldDynamic);
-	WallDetector->SetCollisionResponseToAllChannels(ECR_Ignore);
-	WallDetector->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Overlap);
-	WallDetector->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Overlap);
-	WallDetector->SetGenerateOverlapEvents(true);
 	WallDetector->SetCanEverAffectNavigation(false);
 
 	LedgeDetector = CreateDefaultSubobject<UBoxComponent>(TEXT("LedgeDetector"));
 	LedgeDetector->SetupAttachment(GetCapsuleComponent());
 	LedgeDetector->SetBoxExtent(FVector(10.f, 45.f, 25.f));
 	LedgeDetector->SetRelativeLocation(FVector(45.f, 0.f, 55.f));
-	LedgeDetector->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
-	LedgeDetector->SetCollisionObjectType(ECC_WorldDynamic);
-	LedgeDetector->SetCollisionResponseToAllChannels(ECR_Ignore);
-	LedgeDetector->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Overlap);
-	LedgeDetector->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Overlap);
-	LedgeDetector->SetGenerateOverlapEvents(true);
 	LedgeDetector->SetCanEverAffectNavigation(false);
 	
 	//웅크리기
@@ -387,7 +375,6 @@ void AMarioCharacter::OnWallDetectorBeginOverlap(UPrimitiveComponent* Overlapped
 	UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
 {
 	if (!OtherActor || OtherActor == this) return;
-
 	bWallOverlapping = true;
 
 	// EndOverlap 유예 타이머가 걸려있었다면, 다시 닿은 순간 취소
@@ -472,7 +459,6 @@ void AMarioCharacter::OnWallDetectorEndOverlap(UPrimitiveComponent* OverlappedCo
 	UPrimitiveComponent* OtherComp, int32 OtherBodyIndex)
 {
 	if (!OtherActor || OtherActor == this) return;
-
 	bWallOverlapping = false;
 
 	// SlideStart/Loop 중 EndOverlap은 “진짜로 벽에서 떨어짐”일 수도 있고,

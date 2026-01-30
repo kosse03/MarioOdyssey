@@ -16,11 +16,6 @@ AMarioCapProjectile::AMarioCapProjectile()
 	Collision = CreateDefaultSubobject<USphereComponent>(TEXT("Collision"));
 	SetRootComponent(Collision);
 	Collision->InitSphereRadius(12.f);
-	Collision->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-	Collision->SetCollisionObjectType(ECC_WorldDynamic);
-	Collision->SetCollisionResponseToAllChannels(ECR_Block);
-	Collision->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
-	Collision->SetNotifyRigidBodyCollision(true);
 
 	CapMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("CapMesh"));
 	CapMesh->SetupAttachment(Collision);
@@ -40,7 +35,7 @@ AMarioCapProjectile::AMarioCapProjectile()
 	RotMove->RotationRate = FRotator(0.f, 1000.f, 0.f);
 
 	Collision->OnComponentHit.AddDynamic(this, &AMarioCapProjectile::OnCapHit);
-
+	Collision->OnComponentBeginOverlap.AddDynamic(this, &AMarioCapProjectile::OnCapBeginOverlap);
 	//몇 초 뒤 자동 삭제 금지
 	InitialLifeSpan = 0.0f;
 }
@@ -50,11 +45,7 @@ void AMarioCapProjectile::BeginPlay()
 	Super::BeginPlay();
 
 	OwnerActor = GetOwner();
-	if (OwnerActor.IsValid())
-	{
-		Collision->IgnoreActorWhenMoving(OwnerActor.Get(), true);
-	}
-
+	
 	Phase = ECapPhase::Outgoing;
 	bHoldReleased = false;
 	bMinHoverPassed = false;
@@ -159,9 +150,6 @@ void AMarioCapProjectile::BeginReturn()
 		Destroy();
 		return;
 	}
-	Collision->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
-	Collision->SetCollisionResponseToAllChannels(ECR_Block);
-	Collision->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
 	
 	ProjectileMove->SetUpdatedComponent(Collision);
 	ProjectileMove->SetComponentTickEnabled(true);
@@ -186,53 +174,59 @@ void AMarioCapProjectile::BeginReturn()
 void AMarioCapProjectile::OnCapHit(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrimitiveComponent* OtherComp,
 	FVector NormalImpulse, const FHitResult& Hit)
 {
-	// Returning 중에는 캡쳐/데미지 라우팅 금지(귀환은 무시)
-	if (Phase == ECapPhase::Returning)
-	{
-		return;
-	}
 
 	bHasLastBlockNormal = Hit.bBlockingHit;
 	LastBlockNormal = Hit.Normal;
 
-	//모자 피격 라우팅
-	if (OtherActor && OwnerActor.IsValid() && OtherActor != OwnerActor.Get())
+	// 기존 동작 유지: 벽/몬스터에 닿으면 Hover로 들어감
+	EnterHover();
+}
+
+void AMarioCapProjectile::OnCapBeginOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
+	UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
+{
+	if (!OtherActor || !OwnerActor.IsValid()) return;
+	if (OtherActor == OwnerActor.Get()) return;
+
+	// 캡쳐 대상(인터페이스 있는 몬스터)만 처리
+	if (!OtherActor->GetClass()->ImplementsInterface(UCapturableInterface::StaticClass()))
 	{
-		// '캡쳐 대상'만 처리 (인터페이스 없는 건 기존처럼 벽 취급)
-		if (OtherActor->GetClass()->ImplementsInterface(UCapturableInterface::StaticClass()))
+		return;
+	}
+
+	FCaptureContext Ctx;
+	Ctx.SourceActor = this;
+	Ctx.HitLocation = bFromSweep ? FVector(SweepResult.ImpactPoint) : OtherActor->GetActorLocation();
+
+	if (APawn* OwnerPawn = Cast<APawn>(OwnerActor.Get()))
+	{
+		Ctx.InstigatorController = OwnerPawn->GetController();
+	}
+
+	// Phase 상관없이(Outgoing/Hover/Returning 전부) 캡쳐 시도
+	if (UCaptureComponent* CapComp = OwnerActor->FindComponentByClass<UCaptureComponent>())
+	{
+		if (CapComp->TryCapture(OtherActor, Ctx))
 		{
-			FCaptureContext Ctx;
-			Ctx.SourceActor = this;
-			Ctx.HitLocation = Hit.ImpactPoint;
-
-			if (APawn* OwnerPawn = Cast<APawn>(OwnerActor.Get()))
-			{
-				Ctx.InstigatorController = OwnerPawn->GetController();
-			}
-
-			// 캡쳐 시도
-			if (UCaptureComponent* CapComp = OwnerActor->FindComponentByClass<UCaptureComponent>())
-			{
-				if (CapComp->TryCapture(OtherActor, Ctx))
-				{
-					Destroy(); // 캡쳐 성공 시 모자는 종료
-					return;
-				}
-			}
-
-			// 캡쳐 불가면 데미지
-			UGameplayStatics::ApplyDamage(
-				OtherActor,
-				FailedCaptureDamage,
-				Ctx.InstigatorController,
-				this,
-				UDamageType::StaticClass()
-			);
+			Destroy();
+			return;
 		}
 	}
 
-	// 기존 동작 유지: 벽/몬스터에 닿으면 Hover로 들어감
-	EnterHover();
+	// 캡쳐 실패 시 데미지(기존 정책 유지)
+	UGameplayStatics::ApplyDamage(
+		OtherActor,
+		FailedCaptureDamage,
+		Ctx.InstigatorController,
+		this,
+		UDamageType::StaticClass()
+	);
+
+	// 기존 동작 유지: Outgoing일 때만 Hover로 전환
+	if (Phase == ECapPhase::Outgoing)
+	{
+		EnterHover();
+	}
 }
 
 void AMarioCapProjectile::OnProjectileStopped(const FHitResult& ImpactResult)
