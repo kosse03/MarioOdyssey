@@ -9,6 +9,12 @@
 #include "GameFramework/RotatingMovementComponent.h"
 #include "TimerManager.h"
 
+namespace
+{
+	static const FName TAG_Monster(TEXT("Monster"));
+	static const FName TAG_Capturable(TEXT("Capturable"));
+}
+
 AMarioCapProjectile::AMarioCapProjectile()
 {
 	PrimaryActorTick.bCanEverTick = true;
@@ -16,6 +22,10 @@ AMarioCapProjectile::AMarioCapProjectile()
 	Collision = CreateDefaultSubobject<USphereComponent>(TEXT("Collision"));
 	SetRootComponent(Collision);
 	Collision->InitSphereRadius(12.f);
+	// 프로젝트 세팅/프리셋 누락에도 Overlap/Hit가 안정적으로 뜨도록 기본값을 강제
+	Collision->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+	Collision->SetGenerateOverlapEvents(true);
+	Collision->SetNotifyRigidBodyCollision(true);
 
 	CapMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("CapMesh"));
 	CapMesh->SetupAttachment(Collision);
@@ -38,6 +48,70 @@ AMarioCapProjectile::AMarioCapProjectile()
 	Collision->OnComponentBeginOverlap.AddDynamic(this, &AMarioCapProjectile::OnCapBeginOverlap);
 	//몇 초 뒤 자동 삭제 금지
 	InitialLifeSpan = 0.0f;
+}
+
+bool AMarioCapProjectile::IsCapturableTarget(AActor* TargetActor, UPrimitiveComponent* TargetComp) const
+{
+	if (!TargetActor) return false;
+	//Actor가 CapturableInterface 구현
+	if (TargetActor->GetClass()->ImplementsInterface(UCapturableInterface::StaticClass()))
+	{
+		return true;
+	}
+	// 일부 구현은 "몬스터 컴포넌트"가 인터페이스 구현
+	if (TargetComp && TargetComp->GetClass()->ImplementsInterface(UCapturableInterface::StaticClass()))
+	{
+		return true;
+	}
+	// 태그 기반 fallback(프로필/채널 꼬임, 블루프린트 인터페이스 누락 대비)
+	if (TargetActor->ActorHasTag(TAG_Capturable) || TargetActor->ActorHasTag(TAG_Monster))
+	{
+		return true;
+	}
+	return false;
+}
+
+bool AMarioCapProjectile::TryCaptureTarget(AActor* TargetActor, UPrimitiveComponent* TargetComp, const FHitResult* OptionalHit)
+{
+	if (!OwnerActor.IsValid() || !TargetActor) return false;
+	if (TargetActor == OwnerActor.Get()) return false;
+	if (!IsCapturableTarget(TargetActor, TargetComp)) return false;
+
+	FCaptureContext Ctx;
+	Ctx.SourceActor = this;
+	if (OptionalHit)
+	{
+		const FVector Impact = FVector(OptionalHit->ImpactPoint);
+		Ctx.HitLocation = Impact.IsNearlyZero() ? TargetActor->GetActorLocation() : Impact;
+	}
+	else
+	{
+		Ctx.HitLocation = TargetActor->GetActorLocation();
+	}
+
+	if (APawn* OwnerPawn = Cast<APawn>(OwnerActor.Get()))
+	{
+		Ctx.InstigatorController = OwnerPawn->GetController();
+	}
+
+	if (UCaptureComponent* CapComp = OwnerActor->FindComponentByClass<UCaptureComponent>())
+	{
+		if (CapComp->TryCapture(TargetActor, Ctx))
+		{
+			return true;
+		}
+	}
+
+	// 캡쳐 실패 시 데미지
+	UGameplayStatics::ApplyDamage(
+		TargetActor,
+		FailedCaptureDamage,
+		Ctx.InstigatorController,
+		this,
+		UDamageType::StaticClass()
+	);
+
+	return false;
 }
 
 void AMarioCapProjectile::BeginPlay()
@@ -174,9 +248,18 @@ void AMarioCapProjectile::BeginReturn()
 void AMarioCapProjectile::OnCapHit(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrimitiveComponent* OtherComp,
 	FVector NormalImpulse, const FHitResult& Hit)
 {
+	if (!OtherActor || !OwnerActor.IsValid()) return;
+	if (OtherActor == OwnerActor.Get()) return;
 
 	bHasLastBlockNormal = Hit.bBlockingHit;
 	LastBlockNormal = Hit.Normal;
+
+	// 프리셋/채널이 Block으로 잡혀도 캡쳐가 동작하도록 Hit에서도 캡쳐 시도
+	if (TryCaptureTarget(OtherActor, OtherComp, &Hit))
+	{
+		Destroy();
+		return;
+	}
 
 	// 기존 동작 유지: 벽/몬스터에 닿으면 Hover로 들어감
 	EnterHover();
@@ -188,39 +271,12 @@ void AMarioCapProjectile::OnCapBeginOverlap(UPrimitiveComponent* OverlappedComp,
 	if (!OtherActor || !OwnerActor.IsValid()) return;
 	if (OtherActor == OwnerActor.Get()) return;
 
-	// 캡쳐 대상(인터페이스 있는 몬스터)만 처리
-	if (!OtherActor->GetClass()->ImplementsInterface(UCapturableInterface::StaticClass()))
+	const FHitResult* HitPtr = bFromSweep ? &SweepResult : nullptr;
+	if (TryCaptureTarget(OtherActor, OtherComp, HitPtr))
 	{
+		Destroy();
 		return;
 	}
-
-	FCaptureContext Ctx;
-	Ctx.SourceActor = this;
-	Ctx.HitLocation = bFromSweep ? FVector(SweepResult.ImpactPoint) : OtherActor->GetActorLocation();
-
-	if (APawn* OwnerPawn = Cast<APawn>(OwnerActor.Get()))
-	{
-		Ctx.InstigatorController = OwnerPawn->GetController();
-	}
-
-	// Phase 상관없이(Outgoing/Hover/Returning 전부) 캡쳐 시도
-	if (UCaptureComponent* CapComp = OwnerActor->FindComponentByClass<UCaptureComponent>())
-	{
-		if (CapComp->TryCapture(OtherActor, Ctx))
-		{
-			Destroy();
-			return;
-		}
-	}
-
-	// 캡쳐 실패 시 데미지(기존 정책 유지)
-	UGameplayStatics::ApplyDamage(
-		OtherActor,
-		FailedCaptureDamage,
-		Ctx.InstigatorController,
-		this,
-		UDamageType::StaticClass()
-	);
 
 	// 기존 동작 유지: Outgoing일 때만 Hover로 전환
 	if (Phase == ECapPhase::Outgoing)

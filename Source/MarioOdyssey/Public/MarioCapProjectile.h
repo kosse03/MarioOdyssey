@@ -32,6 +32,10 @@ public:
 
 protected:
 	virtual void BeginPlay() override;
+	
+	bool TryCaptureTarget(AActor* TargetActor, UPrimitiveComponent* TargetComp, const FHitResult* OptionalHit);
+	
+	bool IsCapturableTarget(AActor* TargetActor, UPrimitiveComponent* TargetComp) const;
 
 	UFUNCTION()
 	void OnCapHit(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrimitiveComponent* OtherComp,
@@ -90,7 +94,7 @@ protected:
 	// 마지막으로 벽에 맞았을 때 노멀(벽에서 떼는 용도)
 	FVector LastBlockNormal = FVector::ZeroVector;
 	bool bHasLastBlockNormal = false;
-	// ---- 런타임 상태 ----
+	// 런타임 상태
 	ECapPhase Phase = ECapPhase::Outgoing;
 
 	bool bHoldReleased = false;     // 키를 뗐는가?

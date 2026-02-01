@@ -15,6 +15,9 @@
 #include "Animation/AnimInstance.h"
 #include "Components/SkeletalMeshComponent.h"
 
+#include "Capture/CapturableInterface.h"
+#include "Kismet/GameplayStatics.h"
+
 
 AMarioCharacter::AMarioCharacter()
 {
@@ -67,6 +70,13 @@ AMarioCharacter::AMarioCharacter()
 	//웅크리기
 	GetCharacterMovement()->GetNavAgentPropertiesRef().bCanCrouch = true;
 	GetCharacterMovement()->SetCrouchedHalfHeight(35.0f);
+
+	// Player_Capsule vs Monster_Capsule 이 Block 규칙이라 Overlap이 아니라 Hit로 반응해야 함
+	if (UCapsuleComponent* Capsule = GetCapsuleComponent())
+	{
+		Capsule->SetGenerateOverlapEvents(true);
+		Capsule->SetNotifyRigidBodyCollision(true);
+	}
 	ApplyMoveSpeed();
 }
 
@@ -291,6 +301,12 @@ void AMarioCharacter::BeginPlay()
 	{
 		LedgeDetector->OnComponentBeginOverlap.AddDynamic(this, &AMarioCharacter::OnLedgeDetectorBeginOverlap);
 		LedgeDetector->OnComponentEndOverlap.AddDynamic(this, &AMarioCharacter::OnLedgeDetectorEndOverlap);
+	}
+
+	// 몬스터 접촉(블로킹) 데미지/넉백: Capsule Hit로 처리
+	if (UCapsuleComponent* Capsule = GetCapsuleComponent())
+	{
+		Capsule->OnComponentHit.AddDynamic(this, &AMarioCharacter::OnMarioCapsuleHit);
 	}
 }
 
@@ -688,6 +704,56 @@ float AMarioCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const&
 	}
 
 	return DamageAmount;
+}
+
+void AMarioCharacter::OnMarioCapsuleHit(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrimitiveComponent* OtherComp,
+	FVector NormalImpulse, const FHitResult& Hit)
+{
+	if (!OtherActor || OtherActor == this) return;
+	if (bGameOver) return;
+	if (CaptureComp && CaptureComp->IsCapturing()) return; // 캡쳐 중엔 마리오가 비활성/숨김 처리됨
+
+	// cooldown: 캡슐이 계속 미끄러지면 Hit가 연속으로 뜨는 걸 방지
+	if (UWorld* World = GetWorld())
+	{
+		const float Now = World->GetTimeSeconds();
+		if (Now - LastContactDamageTime < ContactDamageCooldown)
+		{
+			return;
+		}
+		// 몬스터 판정: CapturableInterface(권장) or 태그(보조)
+		const bool bIsMonster = OtherActor->GetClass()->ImplementsInterface(UCapturableInterface::StaticClass())
+			|| OtherActor->ActorHasTag(FName(TEXT("Monster")))
+			|| OtherActor->ActorHasTag(FName(TEXT("Capturable")));
+		if (!bIsMonster)
+		{
+			return;
+		}
+
+		LastContactDamageTime = Now;
+	}
+
+	// 데미지는 UE Damage 파이프라인으로 통일(현재 TakeDamage override가 HP 처리)
+	UGameplayStatics::ApplyDamage(
+		this,
+		ContactDamage,
+		(OtherActor ? OtherActor->GetInstigatorController() : nullptr),
+		OtherActor,
+		UDamageType::StaticClass()
+	);
+
+	// 넉백: 몬스터로부터 멀어지는 방향
+	FVector Away = (GetActorLocation() - OtherActor->GetActorLocation());
+	Away.Z = 0.f;
+	if (!Away.Normalize())
+	{
+		// 위치가 거의 같으면 Hit 노멀 기반
+		Away = -Hit.Normal;
+		Away.Z = 0.f;
+		Away.Normalize();
+	}
+	const FVector LaunchVel = Away * ContactKnockbackXY + FVector(0.f, 0.f, ContactKnockbackZ);
+	LaunchCharacter(LaunchVel, true, true);
 }
 
 void AMarioCharacter::OnThrowCapReleased()

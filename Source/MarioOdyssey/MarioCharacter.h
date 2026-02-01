@@ -34,6 +34,11 @@ public:
 protected:
 	virtual void BeginPlay() override;
 	virtual void Landed(const FHitResult& Hit) override;//점프 OnLanded 오버라이드
+
+	// 플레이어-몬스터 접촉(블로킹) 데미지/넉백
+	UFUNCTION()
+	void OnMarioCapsuleHit(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrimitiveComponent* OtherComp,
+		FVector NormalImpulse, const FHitResult& Hit);
 	
 	//캡쳐 컴포넌트
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Mario|Capture", meta=(AllowPrivateAccess="true"))
@@ -423,6 +428,21 @@ protected:
 
 	UFUNCTION(BlueprintCallable, Category="Mario|HP")
 	bool IsGameOver() const { return bGameOver; }
+
+	// 플레이어가 몬스터와 닿았을 때(블로킹) 데미지/넉백
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Combat")
+	float ContactDamage = 1.f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Combat")
+	float ContactKnockbackXY = 700.f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Combat")
+	float ContactKnockbackZ = 320.f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Combat")
+	float ContactDamageCooldown = 0.55f;
+
+	float LastContactDamageTime = -1000.f;
 	
 	
 	//인풋 콜백
@@ -506,6 +526,8 @@ public:
 	
 private:
 	FMarioState State;
+
+	bool IsMonsterActor(AActor* OtherActor, UPrimitiveComponent* OtherComp) const;
 	
 	void OnThrowCapReleased();
 	
