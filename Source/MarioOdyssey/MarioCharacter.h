@@ -428,7 +428,13 @@ protected:
 
 	UFUNCTION(BlueprintCallable, Category="Mario|HP")
 	bool IsGameOver() const { return bGameOver; }
-
+	
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Combat") // 피격 스턴
+	float HitStunSeconds = 2.57f;
+	
+	UPROPERTY(BlueprintReadOnly, Category="Mario|Combat", meta=(AllowPrivateAccess="true")) // 피격 스턴 animbp
+	bool bHitStun = false;
+	
 	// 플레이어가 몬스터와 닿았을 때(블로킹) 데미지/넉백
 	UPROPERTY(EditDefaultsOnly, Category="Mario|Combat")
 	float ContactDamage = 1.f;
@@ -534,4 +540,9 @@ private:
 	//캡쳐 카메라 세팅
 	bool bCaptureControlRotOverride = false;
 	FRotator CaptureControlRot = FRotator::ZeroRotator;
+	
+	//마리오 피격 스턴
+	bool bInputLocked = false;
+	FTimerHandle HitStunTimer;
+	void ClearHitStun();
 };

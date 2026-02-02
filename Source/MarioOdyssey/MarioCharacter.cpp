@@ -90,6 +90,14 @@ void AMarioCharacter::OnCaptureBegin()
 			Anim->StopAllMontages(0.05f);
 		}
 	}
+
+	// HitStun 정리(캡쳐 시작 시 스턴 잔여물 제거)
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(HitStunTimer);
+	}
+	bInputLocked = false;
+	bHitStun = false;
 	
 	//Roll 정리
 	if (bIsRolling)
@@ -179,6 +187,14 @@ void AMarioCharacter::OnCaptureBegin()
 
 void AMarioCharacter::OnCaptureEnd()
 {
+	// HitStun 정리(언캡쳐 직후 스턴/입력락 잔여물 제거)
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(HitStunTimer);
+	}
+	bInputLocked = false;
+	bHitStun = false;
+
 	//언캡쳐 후, 마리오 조작 가능 상태 복귀
 	if (bIsRolling) AbortRoll(true);
 	EndDive();
@@ -685,9 +701,66 @@ float AMarioCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const&
 	if (DamageAmount <= 0.f) return 0.f;
 
 	CurrentHP = FMath::Clamp(CurrentHP - DamageAmount, 0.f, MaxHP);
-	
-	//여기서 피격 UI/사운드/무적시간
+
+	// 피격 UI/사운드/무적시간
 	UE_LOG(LogTemp, Warning, TEXT("[Mario] Damage=%.2f HP=%.2f/%.2f"), DamageAmount, CurrentHP, MaxHP);
+
+	// 피격 스턴: Damage 파이프라인 기준(접촉 데미지/투사체 등 모든 데미지에 적용)
+	// 캡쳐 중에는 마리오가 숨김/비활성이라 스턴/입력락은 적용하지 않음.
+	if (CurrentHP > 0.f && !(CaptureComp && CaptureComp->IsCapturing()))
+	{
+		// 현재 액션 잔여물 정리(애니 전환/입력 잠금 우선)
+		if (bIsRolling)
+		{
+			AbortRoll(true);
+		}
+		EndDive();
+
+		// GroundPound 중이면 강제 중단(중력/타이머 복원)
+		if (bIsGroundPoundPreparing || bIsGroundPounding)
+		{
+			bIsGroundPoundPreparing = false;
+			bIsGroundPounding = false;
+			bGroundPoundUsed = false;
+			bGroundPoundStunned = false;
+			bWaitingForPoundJump = false;
+
+			if (UWorld* World = GetWorld())
+			{
+				World->GetTimerManager().ClearTimer(GroundPoundPrepareTimer);
+				World->GetTimerManager().ClearTimer(GroundPoundStunTimer);
+			}
+
+			if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+			{
+				MoveComp->GravityScale = DefaultGravityScale;
+				MoveComp->SetMovementMode(MOVE_Falling);
+			}
+
+			EndPoundJumpWindow();
+			State.GroundPound = EGroundPoundPhase::None;
+		}
+
+		// 특수 점프 플래그 정리(피격 모션 우선)
+		bIsLongJumping = false;
+		bIsBackflipping = false;
+		bIsPoundJumping = false;
+
+		// 입력 잠금 + 타이머
+		if (UWorld* World = GetWorld())
+		{
+			bHitStun = true;
+			bInputLocked = true;
+			World->GetTimerManager().ClearTimer(HitStunTimer);
+			World->GetTimerManager().SetTimer(HitStunTimer, this, &AMarioCharacter::ClearHitStun, HitStunSeconds, false);
+		}
+
+		// 즉시 정지(이후 LaunchCharacter 등 외부 넉백은 정상 적용)
+		if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+		{
+			MoveComp->StopMovementImmediately();
+		}
+	}
 
 	if (CurrentHP <= 0.f)
 	{
@@ -766,9 +839,18 @@ void AMarioCharacter::OnThrowCapReleased()
 	}
 }
 
+void AMarioCharacter::ClearHitStun()
+{
+	if (bGameOver) return;
+	bInputLocked = false;
+	bHitStun = false;
+}
+
 
 void AMarioCharacter::Move(const FInputActionValue& Value) // 이동
 {
+	if (bInputLocked) return; // 피격 스턴 중 이동/조작 금지
+
 	if (WallActionState == EWallActionState::SlideStart || WallActionState == EWallActionState::SlideLoop)
 	{
 		return;
@@ -809,6 +891,8 @@ void AMarioCharacter::Look(const FInputActionValue& Value) // 카메라
 
 void AMarioCharacter::OnCrouchPressed(const FInputActionValue& Value)
 {
+	if (bInputLocked) return; // 피격 스턴 중 웅크리기/다이브/엉덩방아 입력 금지
+
 	if (!GetCharacterMovement()) return;
 
 	const bool bOnGround = GetCharacterMovement()->IsMovingOnGround();
@@ -972,6 +1056,8 @@ void AMarioCharacter::ForceDisableDownhillBoost(float DeltaSeconds)
 
 void AMarioCharacter::OnJumpPressed() // 3단 점프, 반동 점프 구현
 {
+	if (bInputLocked) return; // 피격 스턴 중 점프 금지
+
 	if (bIsRolling)
 	{
 		AbortRoll(true);
@@ -1064,6 +1150,8 @@ void AMarioCharacter::OnJumpPressed() // 3단 점프, 반동 점프 구현
 
 void AMarioCharacter::OnRunPressed()
 {
+	if (bInputLocked) return; // 피격 스턴 중 달리기/롤 시작 금지
+
 	if (CanStartRoll())
 	{
 		StartRoll();
@@ -1084,6 +1172,8 @@ void AMarioCharacter::OnRunReleased()
 // 엉덩방아
 void AMarioCharacter::OnGroundPoundPressed()
 {
+	if (bInputLocked) return; // 피격 스턴 중 엉덩방아 금지
+
 	if (bIsRolling) return;
 	if (GetCharacterMovement()->IsMovingOnGround())
 	{
@@ -1207,6 +1297,8 @@ void AMarioCharacter::DoBackflip()
 
 void AMarioCharacter::StartDiveFromCurrentContext()
 {
+	if (bInputLocked) return; // 피격 스턴 중 다이브 시작 금지
+
 	UCharacterMovementComponent* MoveComp = GetCharacterMovement();
 	if (!MoveComp) return;
 	
@@ -1290,6 +1382,8 @@ void AMarioCharacter::EndDive()
 
 void AMarioCharacter::ThrowCap()
 {
+	if (bInputLocked) return; // 피격 스턴 중 모자 던지기 금지
+
 	if (ActiveCap) return;
 	if (!CapProjectileClass) return;
 
@@ -1355,6 +1449,8 @@ bool AMarioCharacter::CanStartRoll() const
 {
 	const UCharacterMovementComponent* MoveComp = GetCharacterMovement();
 	if (!MoveComp) return false;
+
+	if (bInputLocked) return false; // 피격 스턴 중 롤 시작 금지
 
 	if (bIsRolling) return false;
 	if (!MoveComp->IsMovingOnGround()) return false;

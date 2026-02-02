@@ -1,17 +1,14 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "TimerManager.h"
-#include "GameFramework/Character.h"
-#include "Capture/CapturableInterface.h"
-#include "Components/SphereComponent.h"
-#include "InputAction.h"
+#include "Engine/EngineTypes.h"
+#include "Character/MonsterCharacterBase.h"
 #include "GoombaCharacter.generated.h"
 
-struct FInputActionValue;
-class AMarioCharacter;
 class AAIController;
-class UInputAction;
+class USphereComponent;
+class UPrimitiveComponent;
+struct FInputActionValue;
 
 UENUM(BlueprintType)
 enum class EGoombaAIState : uint8
@@ -24,7 +21,7 @@ enum class EGoombaAIState : uint8
 };
 
 UCLASS()
-class MARIOODYSSEY_API AGoombaCharacter : public ACharacter, public ICapturableInterface
+class MARIOODYSSEY_API AGoombaCharacter : public AMonsterCharacterBase
 {
 	GENERATED_BODY()
 
@@ -34,60 +31,27 @@ public:
 protected:
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
+
+	// 캡쳐 입력을 "스택 루트(가장 밑 굼바)"로 포워딩하기 위해 굼바는 입력 바인딩을 커스텀한다.
 	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
-	
-	//접촉 데미지, 넉백
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Goomba|Combat", meta=(AllowPrivateAccess="true"))
-	USphereComponent* ContactSphere = nullptr;
 
-	UPROPERTY(EditDefaultsOnly, Category="Goomba|Combat")
-	float ContactDamage = 1.f;
+	// =========================
+	// 캡쳐/해제 훅
+	// =========================
+	virtual void OnCapturedExtra(AController* Capturer, const FCaptureContext& Context) override;
+	virtual void OnReleasedExtra(const FCaptureReleaseContext& Context) override;
 
-	UPROPERTY(EditDefaultsOnly, Category="Goomba|Combat")
-	float ContactDamageCooldown = 0.6f;
+	// 스택 상태에서 캡쳐 피격 반응(넉백)을 루트에 적용
+	virtual void OnCapturedPawnDamaged_Implementation(float Damage, AController* InstigatorController, AActor* DamageCauser) override;
 
-	UPROPERTY(EditDefaultsOnly, Category="Goomba|Combat")
-	float KnockbackStrength = 550.f;
+	// =========================
+	// Capturable Interface (스택 최상단을 캡쳐 대상으로)
+	// =========================
+	virtual APawn* GetCapturePawn_Implementation() override;
 
-	UPROPERTY(EditDefaultsOnly, Category="Goomba|Combat")
-	float KnockbackUp = 120.f;
-
-	float LastContactDamageTime = -1000.f;
-
-	UFUNCTION()
-	void OnContactBeginOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
-							   UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep,
-							   const FHitResult& SweepResult);
-
-	// Input 캡쳐 중 C키 해제용: IA_Crouch 재사용 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Goomba|Input")
-	TObjectPtr<UInputAction> IA_Crouch = nullptr;
-	void OnReleaseCapturePressed(const FInputActionValue& Value);
-	
-	//움직임
-	UPROPERTY(EditDefaultsOnly, Category="Goomba|Input")
-	TObjectPtr<UInputAction> IA_Move;
-	UPROPERTY(EditDefaultsOnly, Category="Goomba|Move")
-	float CapturedWalkSpeed = 200.f;
-	
-	UPROPERTY(EditDefaultsOnly, Category="Goomba|Input")
-	TObjectPtr<const UInputAction> IA_Run = nullptr;
-	UPROPERTY(EditDefaultsOnly, Category="Goomba|Move")
-	float CapturedRunSpeed = 500.f;
-	
-	UPROPERTY(EditDefaultsOnly, Category="Goomba|Input")
-	TObjectPtr<const UInputAction> IA_Jump = nullptr;
-	UPROPERTY(EditDefaultsOnly, Category="Goomba|Move")
-	float CapturedJumpZVelocity = 520.f;
-	
-	
-	//카메라
-	UPROPERTY(EditDefaultsOnly, Category="Goomba|Input")
-	TObjectPtr<UInputAction> IA_Look;
-	void Input_Look(const FInputActionValue& Value);
-
-
-	// AI 튜닝값 
+	// =========================
+	// AI 튜닝값
+	// =========================
 	UPROPERTY(EditDefaultsOnly, Category="Goomba|AI")
 	float PatrolRadius = 600.f;
 
@@ -109,28 +73,86 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category="Goomba|AI")
 	float ReturnHomeAfterSeconds = 30.f;
 
-	//언캡쳐 후 스턴
+	// 언캡쳐 후 스턴
 	UPROPERTY(EditDefaultsOnly, Category="Goomba|AI")
 	float ReleaseStunSeconds = 3.f;
-	
-	//캡쳐 중 피격 스턴
-	UPROPERTY(EditDefaultsOnly, Category="Goomba|Combat")
-	float CapturedHitStunSeconds = 1.5f;
-	
-	UPROPERTY(EditDefaultsOnly, Category="Goomba|Combat")
-	float CapturedHitKnockbackStrength = 650.f;
-	
-	UPROPERTY(EditDefaultsOnly, Category="Goomba|Combat")
-	float CapturedHitKnockbackUp = 140.f;
-	
-	//ICapturableInterface (일단 “캡쳐 가능” 기본)
-	virtual bool CanBeCaptured_Implementation(const FCaptureContext& Context) override { return true; }
-	virtual APawn* GetCapturePawn_Implementation() override { return this; }
-	virtual void OnCaptured_Implementation(AController* Capturer, const FCaptureContext& Context) override;
-	virtual void OnReleased_Implementation(const FCaptureReleaseContext& Context) override;
-	virtual void OnCapturedPawnDamaged_Implementation(float Damage, AController* InstigatorController, AActor* DamageCauser) override;
 
-	//서칭콘 디버그용//////////////////////////////////////
+	// =========================
+	// Stack (무제한)
+	// =========================
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Goomba|Stack")
+	TObjectPtr<USphereComponent> HeadStackSphere = nullptr;
+
+	// 아래/위 연결(루트=null 아래, 탑=null 위)
+	TWeakObjectPtr<AGoombaCharacter> StackBelow;
+	TWeakObjectPtr<AGoombaCharacter> StackAbove;
+
+	// 스택 간격(캡슐 반높이 합 - Gap). Gap이 0이면 딱 맞닿게.
+	UPROPERTY(EditDefaultsOnly, Category="Goomba|Stack", meta=(ClampMin="0.0", ClampMax="20.0"))
+	float StackGap = 2.f;
+
+	// "캡쳐 굼바가 다른 굼바 머리 위에 올라갔을 때"만 스택을 쌓는다(즉, 스택 시작은 캡쳐 기반).
+	UPROPERTY(EditDefaultsOnly, Category="Goomba|Stack")
+	bool bOnlyStackWhenCapturedInUpperStack = true;
+
+	UFUNCTION()
+	void OnHeadStackSphereBeginOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
+	                                  UPrimitiveComponent* OtherComp, int32 OtherBodyIndex,
+	                                  bool bFromSweep, const FHitResult& SweepResult);
+
+
+	// Goomba 전용 컨택(스택 내부 자기넉백 방지)
+	UFUNCTION()
+	void OnContactBeginOverlap_Goomba(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
+		UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
+
+	// 스택 헬퍼
+	bool IsStackRoot() const { return !StackBelow.IsValid(); }
+	bool IsStackTop() const { return !StackAbove.IsValid(); }
+	bool IsStackFollower() const { return StackBelow.IsValid(); }
+
+	AGoombaCharacter* GetStackRoot();
+	AGoombaCharacter* GetStackTop();
+	AGoombaCharacter* GetCapturedInStack();
+	bool HasCapturedInStack() { return GetCapturedInStack() != nullptr; }
+
+	// upperRoot(=이 스택의 루트)를 lowerTop 위에 붙여서 스택을 합친다.
+	bool AttachStackRootAbove(AGoombaCharacter* LowerTop);
+
+	// 루트에서만 호출: 회전/오프셋/컨택스피어 상태 등을 정리
+	void UpdateStackPresentation(float Dt);
+
+	// 상태 전환(플레이어 조종 스택 <-> 일반 몬스터 스택)
+	void ApplyStackModeTransition(bool bNowPlayerControlled, AGoombaCharacter* Captured);
+
+	// 루트 AI 스턴 강제
+	void ForceStun(float Seconds);
+
+	// =========================
+	// Capture-Control Input (Goomba 전용 바인딩)
+	// =========================
+	void Input_Move_Stack(const FInputActionValue& Value);
+	void Input_Look_Passthrough(const FInputActionValue& Value);
+	void Input_RunStarted_Stack(const FInputActionValue& Value);
+	void Input_RunCompleted_Stack(const FInputActionValue& Value);
+	void Input_JumpStarted_Stack(const FInputActionValue& Value);
+	void Input_JumpCompleted_Stack(const FInputActionValue& Value);
+	void Input_ReleaseCapture_Passthrough(const FInputActionValue& Value);
+	void ClearCapturedHitStun_Proxy();
+
+	void ApplyCapturedSpeedToStackRoot();
+
+	// =========================
+	// Damage forwarding (스택 어디 맞아도 캡쳐 굼바/마리오 HP로 라우팅)
+	// =========================
+	virtual float TakeDamage(float DamageAmount, FDamageEvent const& DamageEvent,
+	                         AController* EventInstigator, AActor* DamageCauser) override;
+
+	bool bForwardingDamage = false;
+
+	// =========================
+	// 디버그
+	// =========================
 	UPROPERTY(EditAnywhere, Category="Goomba|Debug")
 	bool bDrawSearchCone = true;
 
@@ -139,44 +161,23 @@ protected:
 
 	UPROPERTY(EditAnywhere, Category="Goomba|Debug", meta=(ClampMin="4", ClampMax="64"))
 	int32 DebugArcSegments = 24;
-	
+
 	UPROPERTY(EditDefaultsOnly, Category="Goomba|AI")
 	float DetectHalfAngleYawDeg = 45.f;   // 좌/우
 
 	UPROPERTY(EditDefaultsOnly, Category="Goomba|AI")
 	float DetectHalfAnglePitchDeg = 20.f; // 위/아래
-	
+
 	void DrawSearchConeDebug() const;
 
 #if WITH_EDITOR
 	virtual bool ShouldTickIfViewportsOnly() const override { return bDrawSearchCone; }
 #endif
-	////////////////////////////////////////////////////
+
 private:
-	// 캡쳐 상태
-	bool bIsCaptured = false;
-	TWeakObjectPtr<AMarioCharacter> CapturingMario;
-	
-	//달리기, 점프, 걷기 
-	bool bRunHeld = false;
-	float DefaultJumpZVelocity = 0.f;
-	
-	void ApplyCapturedMoveParams();
-	
-	void Input_Move(const FInputActionValue& Value);
-	void Input_RunStarted(const FInputActionValue& Value);
-	void Input_RunCompleted(const FInputActionValue& Value);
-	void Input_JumpStarted(const FInputActionValue& Value);
-	void Input_JumpCompleted(const FInputActionValue& Value);
-	
-	//캡쳐 중 피격 스턴
-	bool bInputLocked = false;
-	FTimerHandle CapturedHitStunTimer;
-	void ClearCapturedHitStun();
-	
-	//해제 후 스턴
+	// 해제 후 스턴
 	float StunRemain = 0.f;
-	
+
 	// AI 상태
 	EGoombaAIState State = EGoombaAIState::Stunned;
 	FVector HomeLocation = FVector::ZeroVector;
@@ -186,14 +187,17 @@ private:
 
 	float LookAroundRemain = 0.f;
 	float ReturnHomeTimer = 0.f;
-	
+
+	// stack mode cache (루트에서만 사용)
+	bool bCachedPlayerControlledStack = false;
+	bool bCachedOrientRotationToMovement = true;
+
 	void SetState(EGoombaAIState NewState);
 
 	AActor* GetPlayerTargetActor() const;
 	bool CanDetectTarget(const AActor* Target) const;
 
 	AAIController* GetAICon() const;
-	void StopAIMove();
 
 	void UpdatePatrol(float Dt);
 	void UpdateChase(float Dt, AActor* Target);
