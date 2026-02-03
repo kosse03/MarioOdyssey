@@ -52,7 +52,7 @@ AGoombaCharacter::AGoombaCharacter()
 	if (HeadStackSphere)
 	{
 		HeadStackSphere->SetupAttachment(GetCapsuleComponent());
-		HeadStackSphere->InitSphereRadius(18.f);
+		HeadStackSphere->InitSphereRadius(60.f);
 		HeadStackSphere->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
 		HeadStackSphere->SetCollisionResponseToAllChannels(ECR_Overlap);
 		HeadStackSphere->SetGenerateOverlapEvents(true);
