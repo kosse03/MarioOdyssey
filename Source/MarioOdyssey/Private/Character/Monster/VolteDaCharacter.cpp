@@ -1,8 +1,7 @@
-#include "Character/VolteDaCharacter.h"
+#include "Character/Monster/VolteDaCharacter.h"
 
 #include "EnhancedInputComponent.h"
 #include "InputActionValue.h"
-#include "Kismet/GameplayStatics.h"
 #include "EngineUtils.h"
 #include "GameFramework/CharacterMovementComponent.h"
 
@@ -36,15 +35,10 @@ void AVolteDaCharacter::OnCapturedExtra(AController* Capturer, const FCaptureCon
 	SetGlassesOn(true);
 }
 
-void AVolteDaCharacter::OnReleased_Implementation(const FCaptureReleaseContext& Context)
+void AVolteDaCharacter::OnReleasedExtra(const FCaptureReleaseContext& Context)
 {
-	// 해제 직전(bIsCaptured=true인 상태)에서 숨김 오브젝트 다시 숨김 처리
-	if (bIsCaptured)
-	{
-		SetGlassesOn(false);
-	}
-
-	Super::OnReleased_Implementation(Context);
+	// 캡쳐 해제되면 안경 OFF + 숨긴 오브젝트 원복
+	SetGlassesOn(false);
 }
 
 

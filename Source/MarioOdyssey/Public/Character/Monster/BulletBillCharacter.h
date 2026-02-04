@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Character/MonsterCharacterBase.h"
+#include "Character/Monster/MonsterCharacterBase.h"
 #include "BulletBillCharacter.generated.h"
 
 struct FInputActionValue;

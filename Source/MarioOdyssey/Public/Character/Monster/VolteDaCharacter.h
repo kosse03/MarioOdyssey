@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Character/MonsterCharacterBase.h"
+#include "Character/Monster/MonsterCharacterBase.h"
 #include "VolteDaCharacter.generated.h"
 
 struct FInputActionValue;
@@ -21,7 +21,7 @@ public:
 protected:
 	// Capture hooks
 	virtual void OnCapturedExtra(AController* Capturer, const FCaptureContext& Context) override;
-	virtual void OnReleased_Implementation(const FCaptureReleaseContext& Context) override;
+	virtual void OnReleasedExtra(const FCaptureReleaseContext& Context) override;
 
 	// 선글라스 ON일 때 느린 속도, OFF일 때 빠른 속도
 	UPROPERTY(EditDefaultsOnly, Category="VolteDa|Move")

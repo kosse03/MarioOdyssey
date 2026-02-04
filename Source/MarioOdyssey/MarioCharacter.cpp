@@ -39,7 +39,7 @@ AMarioCharacter::AMarioCharacter()
 	//카메라
 	SpringArm = CreateDefaultSubobject<USpringArmComponent>(TEXT("SpringArm"));
 	SpringArm->SetupAttachment(RootComponent);
-	SpringArm->TargetArmLength = 450.f;
+	SpringArm->TargetArmLength = 800.f;
 	SpringArm->bUsePawnControlRotation = true;
 	
 	SpringArm->bInheritPitch = true;

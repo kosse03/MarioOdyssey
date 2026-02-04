@@ -1,4 +1,4 @@
-#include "Character/BulletBillCharacter.h"
+#include "Character/Monster/BulletBillCharacter.h"
 
 #include "EnhancedInputComponent.h"
 #include "InputActionValue.h"
@@ -85,8 +85,9 @@ void ABulletBillCharacter::Tick(float DeltaSeconds)
 
 void ABulletBillCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
-	// 베이스 바인딩(IA_Move가 AddMovementInput을 호출해서 미사일에 부적합) -> Super 호출하지 않고 직접 바인딩
-	Super::SetupPlayerInputComponent(PlayerInputComponent);
+	// MonsterCharacterBase::SetupPlayerInputComponent()는 IA_Move를 AddMovementInput으로 바인딩함.
+	// BulletBill은 AddActorWorldOffset 기반 비행체라서 베이스 바인딩을 건너뛰고, 여기서만 직접 바인딩한다.
+	ACharacter::SetupPlayerInputComponent(PlayerInputComponent);
 
 	if (UEnhancedInputComponent* EIC = Cast<UEnhancedInputComponent>(PlayerInputComponent))
 	{
@@ -121,6 +122,7 @@ void ABulletBillCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInpu
 		}
 	}
 }
+
 
 void ABulletBillCharacter::Input_Steer(const FInputActionValue& Value)
 {

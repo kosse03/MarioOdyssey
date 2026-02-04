@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Engine/EngineTypes.h"
-#include "Character/MonsterCharacterBase.h"
+#include "Character/Monster/MonsterCharacterBase.h"
 #include "GoombaCharacter.generated.h"
 
 class AAIController;
