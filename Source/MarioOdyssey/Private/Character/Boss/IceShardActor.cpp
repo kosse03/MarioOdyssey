@@ -1,4 +1,7 @@
 #include "Character/Boss/IceShardActor.h"
+
+#include "Character/Boss/AttrenashinBoss.h"
+#include "Character/Boss/AttrenashinFist.h"
 #include "Character/Boss/IceTileActor.h"
 #include "MarioOdyssey/MarioCharacter.h"
 
@@ -51,10 +54,34 @@ void AIceShardActor::InitShard(AActor* InOwnerBoss, float InDamage, TSubclassOf<
 	IceTileClass = InIceTileClass;
 	IceTileZOffset = InIceTileZOffset;
 
+	Mode = EIceShardMode::RainTile;
+	bDamageMarioEnabled = true;
+	bSpawnTileOnStop = true;
+	BarrageCapturedFist.Reset();
+
 	if (ProjectileMove)
 	{
 		ProjectileMove->ProjectileGravityScale = GravityScale;
 		ProjectileMove->Velocity = FVector(0.f, 0.f, -InitialDownSpeed);
+	}
+}
+
+void AIceShardActor::InitBarrageShard(AActor* InOwnerBoss, AAttrenashinFist* InCapturedFist, const FVector& InVelocity)
+{
+	OwnerBoss = InOwnerBoss;
+	Damage = 0.f;
+	IceTileClass = nullptr;
+	IceTileZOffset = 0.f;
+
+	Mode = EIceShardMode::CaptureBarrage;
+	bDamageMarioEnabled = false;
+	bSpawnTileOnStop = false;
+	BarrageCapturedFist = InCapturedFist;
+
+	if (ProjectileMove)
+	{
+		ProjectileMove->ProjectileGravityScale = 0.f;
+		ProjectileMove->Velocity = InVelocity;
 	}
 }
 
@@ -63,19 +90,51 @@ void AIceShardActor::OnBeginOverlap(UPrimitiveComponent* OverlappedComp, AActor*
                                     bool bFromSweep, const FHitResult& SweepResult)
 {
 	if (!OtherActor || OtherActor == this) return;
+
+	// 캡쳐 카운터 샤드: 캡쳐된 주먹 적중 체크 우선
+	if (Mode == EIceShardMode::CaptureBarrage)
+	{
+		if (AAttrenashinFist* HitFist = Cast<AAttrenashinFist>(OtherActor))
+		{
+			if (BarrageCapturedFist.IsValid() && HitFist == BarrageCapturedFist.Get())
+			{
+				if (AAttrenashinBoss* Boss = Cast<AAttrenashinBoss>(OwnerBoss.Get()))
+				{
+					const FVector V = ProjectileMove ? ProjectileMove->Velocity : GetVelocity();
+					Boss->NotifyBarrageShardHitCapturedFist(HitFist, V);
+				}
+				Destroy();
+				return;
+			}
+			// 던지는 손(반대손) 등 다른 주먹은 무시
+			return;
+		}
+
+		// 플레이어는 맞아도 데미지 없음
+		if (Cast<AMarioCharacter>(OtherActor))
+		{
+			Destroy();
+			return;
+		}
+
+		return;
+	}
+
+	// 일반 얼음비 샤드: Mario 데미지 1회
 	if (bDamagedMario) return;
+	if (!bDamageMarioEnabled) return;
 
-	AMarioCharacter* Mario = Cast<AMarioCharacter>(OtherActor);
-	if (!Mario) return;
+	if (AMarioCharacter* Mario = Cast<AMarioCharacter>(OtherActor))
+	{
+		UGameplayStatics::ApplyDamage(
+			Mario,
+			Damage,
+			OwnerBoss.IsValid() ? OwnerBoss->GetInstigatorController() : nullptr,
+			this,
+			nullptr);
 
-	UGameplayStatics::ApplyDamage(
-		Mario,
-		Damage,
-		OwnerBoss.IsValid() ? OwnerBoss->GetInstigatorController() : nullptr,
-		this,
-		nullptr);
-
-	bDamagedMario = true;
+		bDamagedMario = true;
+	}
 }
 
 void AIceShardActor::OnProjectileStop(const FHitResult& ImpactResult)
@@ -83,17 +142,20 @@ void AIceShardActor::OnProjectileStop(const FHitResult& ImpactResult)
 	if (bStopped) return;
 	bStopped = true;
 
-	if (UWorld* World = GetWorld())
+	if (bSpawnTileOnStop)
 	{
-		if (IceTileClass)
+		if (UWorld* World = GetWorld())
 		{
-			FVector SpawnLoc = ImpactResult.ImpactPoint;
-			SpawnLoc.Z += IceTileZOffset;
+			if (IceTileClass)
+			{
+				FVector SpawnLoc = ImpactResult.ImpactPoint;
+				SpawnLoc.Z += IceTileZOffset;
 
-			FActorSpawnParameters SP;
-			SP.Owner = OwnerBoss.Get();
+				FActorSpawnParameters SP;
+				SP.Owner = OwnerBoss.Get();
 
-			World->SpawnActor<AIceTileActor>(IceTileClass, SpawnLoc, FRotator::ZeroRotator, SP);
+				World->SpawnActor<AIceTileActor>(IceTileClass, SpawnLoc, FRotator::ZeroRotator, SP);
+			}
 		}
 	}
 

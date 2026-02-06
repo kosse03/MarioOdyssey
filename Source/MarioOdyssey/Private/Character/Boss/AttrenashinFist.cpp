@@ -1,4 +1,3 @@
-\
 #include "Character/Boss/AttrenashinFist.h"
 #include "Character/Boss/AttrenashinBoss.h"
 #include "Character/Boss/IceTileActor.h"
@@ -9,9 +8,12 @@
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "InputActionValue.h"
+#include "Capture/CaptureComponent.h"
+#include "MarioOdyssey/MarioCharacter.h"
 
 #include "Engine/EngineTypes.h"
 #include "Engine/OverlapResult.h"
+#include "Kismet/GameplayStatics.h"
 
 AAttrenashinFist::AAttrenashinFist()
 {
@@ -83,6 +85,11 @@ void AAttrenashinFist::OnCapturedExtra(AController* Capturer, const FCaptureCont
 		Move->StopMovementImmediately();
 		Move->DisableMovement();
 	}
+
+	if (Boss.IsValid())
+	{
+		Boss->NotifyFistCaptured(this);
+	}
 }
 
 void AAttrenashinFist::OnReleasedExtra(const FCaptureReleaseContext& Context)
@@ -94,6 +101,12 @@ void AAttrenashinFist::OnReleasedExtra(const FCaptureReleaseContext& Context)
 	{
 		Move->SetMovementMode(MOVE_Walking);
 	}
+
+	if (Boss.IsValid())
+	{
+		Boss->NotifyFistReleased(this);
+	}
+
 	StartReturnToAnchor(ReturnHomeSeconds);
 }
 
@@ -114,6 +127,64 @@ void AAttrenashinFist::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 void AAttrenashinFist::Input_Steer(const FInputActionValue& Value)
 {
 	Steer = Value.Get<FVector2D>();
+}
+
+void AAttrenashinFist::ForceReleaseCaptureByBoss()
+{
+	if (!bIsCaptured) return;
+
+	APlayerController* PC = Cast<APlayerController>(GetController());
+	if (!PC) return;
+
+	AMarioCharacter* Mario = Cast<AMarioCharacter>(PC->GetViewTarget());
+	if (!Mario)
+	{
+		Mario = Cast<AMarioCharacter>(UGameplayStatics::GetPlayerCharacter(GetWorld(), 0));
+	}
+	if (!Mario) return;
+
+	if (UCaptureComponent* CapComp = Mario->FindComponentByClass<UCaptureComponent>())
+	{
+		CapComp->ReleaseCapture(ECaptureReleaseReason::Manual);
+	}
+}
+
+void AAttrenashinFist::ApplyCapturedShardKnockback(const FVector& ShardVelocity, float Strength, float Upward)
+{
+	if (!bIsCaptured) return;
+
+	FVector Dir = ShardVelocity.GetSafeNormal();
+	if (Dir.IsNearlyZero())
+	{
+		Dir = GetActorForwardVector();
+	}
+
+	LaunchCharacter(Dir * Strength + FVector(0.f, 0.f, Upward), true, true);
+}
+
+
+void AAttrenashinFist::AbortAttackAndReturnForBarrage(float ReturnSeconds)
+{
+	if (bIsCaptured) return;
+
+	SetIgnoreIceStun(false);
+	SetDamageOverlapEnabled(false);
+
+	bPendingStun = false;
+	SlamSeq = EAttrenashinSlamSeq::None;
+	SlamSeqT = 0.f;
+	SeqTargetActor.Reset();
+
+	IceRainT = 0.f;
+	bIceRainImpactFired = false;
+
+	if (UCharacterMovementComponent* Move = GetCharacterMovement())
+	{
+		Move->StopMovementImmediately();
+		Move->SetMovementMode(MOVE_Walking);
+	}
+
+	StartReturnToAnchor(FMath::Max(0.01f, ReturnSeconds));
 }
 
 void AAttrenashinFist::StartSlamSequence(AActor* TargetActor)
@@ -486,6 +557,7 @@ void AAttrenashinFist::StartReturnToAnchor(float DurationSeconds)
 	EnterState(EFistState::ReturnToAnchor);
 }
 
+
 void AAttrenashinFist::TickReturnToAnchor(float Dt)
 {
 	if (!Anchor.IsValid())
@@ -498,11 +570,19 @@ void AAttrenashinFist::TickReturnToAnchor(float Dt)
 
 	const float Remain = FMath::Max(0.f, ReturnDuration - ReturnT);
 	const FVector Home = Anchor->GetComponentLocation();
+	const FRotator HomeRot = Anchor->GetComponentRotation();
 
 	MoveTowardAdaptive(Home, Dt, Remain, ReturnMaxSpeed, true);
 
+	// 복귀 중 축(회전)도 원복
+	const float Alpha = FMath::Clamp(ReturnDuration > 0.f ? (ReturnT / ReturnDuration) : 1.f, 0.f, 1.f);
+	const FRotator NewRot = FMath::Lerp(GetActorRotation(), HomeRot, Alpha);
+	SetActorRotation(NewRot, ETeleportType::None);
+
 	if (ReturnT >= ReturnDuration)
 	{
+		SetActorLocation(Home, false, nullptr, ETeleportType::None);
+		SetActorRotation(HomeRot, ETeleportType::None);
 		EnterState(EFistState::Idle);
 	}
 }

@@ -1,13 +1,11 @@
 #include "Animation/AttrenashinBossAnimInstance.h"
 #include "Character/Boss/AttrenashinBoss.h"
-#include "GameFramework/Pawn.h"
+#include "GameFramework/Actor.h"
 
 void UAttrenashinBossAnimInstance::NativeInitializeAnimation()
 {
 	Super::NativeInitializeAnimation();
-
-	APawn* PawnOwner = TryGetPawnOwner();
-	Boss = Cast<AAttrenashinBoss>(PawnOwner);
+	Boss = Cast<AAttrenashinBoss>(GetOwningActor());
 }
 
 void UAttrenashinBossAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
@@ -16,8 +14,7 @@ void UAttrenashinBossAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 
 	if (!Boss)
 	{
-		APawn* PawnOwner = TryGetPawnOwner();
-		Boss = Cast<AAttrenashinBoss>(PawnOwner);
+		Boss = Cast<AAttrenashinBoss>(GetOwningActor());
 		if (!Boss) return;
 	}
 

@@ -21,6 +21,11 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Attrenashin|IceRain")
 	void StartIceRainSlam();
 
+	// 보스 카운터 샤드 로직
+	void ForceReleaseCaptureByBoss();
+	void ApplyCapturedShardKnockback(const FVector& ShardVelocity, float Strength, float Upward);
+void AbortAttackAndReturnForBarrage(float ReturnSeconds);
+
 	bool IsIdle() const { return State == EFistState::Idle; }
 	bool IsStunned() const { return State == EFistState::Stunned; }
 	bool IsCapturedDriving() const { return State == EFistState::CapturedDrive; }

@@ -4,6 +4,13 @@
 #include "GameFramework/Actor.h"
 #include "IceShardActor.generated.h"
 
+UENUM(BlueprintType)
+enum class EIceShardMode : uint8
+{
+	RainTile UMETA(DisplayName="RainTile"),
+	CaptureBarrage UMETA(DisplayName="CaptureBarrage")
+};
+
 UCLASS()
 class MARIOODYSSEY_API AIceShardActor : public AActor
 {
@@ -12,8 +19,11 @@ class MARIOODYSSEY_API AIceShardActor : public AActor
 public:
 	AIceShardActor();
 
-	// Boss가 스폰 직후 설정
+	// 기본 얼음비 샤드(바닥 충돌 시 타일 생성)
 	void InitShard(AActor* InOwnerBoss, float InDamage, TSubclassOf<class AIceTileActor> InIceTileClass, float InIceTileZOffset);
+
+	// 캡쳐 카운터 샤드(플레이어 데미지 없음, 캡쳐된 주먹 타격 시 카운트)
+	void InitBarrageShard(AActor* InOwnerBoss, class AAttrenashinFist* InCapturedFist, const FVector& InVelocity);
 
 protected:
 	UPROPERTY(VisibleAnywhere)
@@ -39,10 +49,15 @@ protected:
 
 private:
 	TWeakObjectPtr<AActor> OwnerBoss;
-	float Damage = 1.f;
+	TWeakObjectPtr<class AAttrenashinFist> BarrageCapturedFist;
 
+	float Damage = 1.f;
 	TSubclassOf<class AIceTileActor> IceTileClass;
 	float IceTileZOffset = 0.f;
+
+	EIceShardMode Mode = EIceShardMode::RainTile;
+	bool bDamageMarioEnabled = true;
+	bool bSpawnTileOnStop = true;
 
 	bool bDamagedMario = false;
 	bool bStopped = false;

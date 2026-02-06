@@ -19,13 +19,13 @@ protected:
 	TObjectPtr<class AAttrenashinBoss> Boss = nullptr;
 
 	UPROPERTY(BlueprintReadOnly, Category="Boss|State")
-	EAttrenashinPhase Phase = EAttrenashinPhase::Phase1;
+	EAttrenashinPhase Phase = EAttrenashinPhase::Phase0;
 
 	UPROPERTY(BlueprintReadOnly, Category="Boss|State")
-	bool bPhase0 = false;
+	bool bPhase0 = true;
 
 	UPROPERTY(BlueprintReadOnly, Category="Boss|State")
-	bool bPhase1 = true;
+	bool bPhase1 = false;
 
 	UPROPERTY(BlueprintReadOnly, Category="Boss|State")
 	bool bPhase2 = false;
