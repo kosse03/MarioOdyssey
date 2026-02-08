@@ -12,9 +12,11 @@ AIceTileActor::AIceTileActor()
 
 	Box = CreateDefaultSubobject<UBoxComponent>(TEXT("Box"));
 	Box->SetupAttachment(Root);
-	Box->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
-	Box->SetCollisionResponseToAllChannels(ECR_Overlap);
-	Box->SetGenerateOverlapEvents(true);
+	// 타일은 지형처럼 막히는 충돌
+	Box->SetCollisionProfileName(TEXT("BlockAll"));
+	Box->SetCollisionObjectType(ECC_WorldStatic);
+	Box->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+	Box->SetGenerateOverlapEvents(false);
 
 	Mesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Mesh"));
 	Mesh->SetupAttachment(Box);

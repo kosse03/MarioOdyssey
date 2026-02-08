@@ -7,6 +7,7 @@
 
 #include "Components/SphereComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/CapsuleComponent.h"
 #include "GameFramework/ProjectileMovementComponent.h"
 #include "Kismet/GameplayStatics.h"
 
@@ -59,6 +60,16 @@ void AIceShardActor::InitShard(AActor* InOwnerBoss, float InDamage, TSubclassOf<
 	bSpawnTileOnStop = true;
 	BarrageCapturedFist.Reset();
 
+	// 일반 얼음비: 월드 충돌 Block, Mario만 Overlap 데미지
+	if (Sphere)
+	{
+		Sphere->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+		Sphere->SetCollisionResponseToAllChannels(ECR_Ignore);
+		Sphere->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
+		Sphere->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Block);
+		Sphere->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
+	}
+
 	if (ProjectileMove)
 	{
 		ProjectileMove->ProjectileGravityScale = GravityScale;
@@ -77,6 +88,24 @@ void AIceShardActor::InitBarrageShard(AActor* InOwnerBoss, AAttrenashinFist* InC
 	bDamageMarioEnabled = false;
 	bSpawnTileOnStop = false;
 	BarrageCapturedFist = InCapturedFist;
+
+	// 캡쳐 카운터 샤드:
+	// - 월드 충돌 Block
+	// - Mario/주먹에는 Overlap(피격 이벤트용)
+	if (Sphere)
+	{
+		Sphere->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+		Sphere->SetCollisionResponseToAllChannels(ECR_Ignore);
+		Sphere->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
+		Sphere->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Block);
+		Sphere->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
+
+		if (InCapturedFist && InCapturedFist->GetCapsuleComponent())
+		{
+			const ECollisionChannel FistObjType = InCapturedFist->GetCapsuleComponent()->GetCollisionObjectType();
+			Sphere->SetCollisionResponseToChannel(FistObjType, ECR_Overlap);
+		}
+	}
 
 	if (ProjectileMove)
 	{
@@ -141,6 +170,25 @@ void AIceShardActor::OnProjectileStop(const FHitResult& ImpactResult)
 {
 	if (bStopped) return;
 	bStopped = true;
+
+	// 안전장치: 모드가 CaptureBarrage인데 Block으로 맞은 경우에도 카운트 처리
+	if (Mode == EIceShardMode::CaptureBarrage)
+	{
+		if (AAttrenashinFist* HitFist = Cast<AAttrenashinFist>(ImpactResult.GetActor()))
+		{
+			if (BarrageCapturedFist.IsValid() && HitFist == BarrageCapturedFist.Get())
+			{
+				if (AAttrenashinBoss* Boss = Cast<AAttrenashinBoss>(OwnerBoss.Get()))
+				{
+					const FVector V = ProjectileMove ? ProjectileMove->Velocity : GetVelocity();
+					Boss->NotifyBarrageShardHitCapturedFist(HitFist, V);
+				}
+			}
+		}
+
+		Destroy();
+		return;
+	}
 
 	if (bSpawnTileOnStop)
 	{

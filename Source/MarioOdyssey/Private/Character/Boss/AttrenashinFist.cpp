@@ -24,12 +24,25 @@ AAttrenashinFist::AAttrenashinFist()
 
 	if (UCapsuleComponent* Cap = GetCapsuleComponent())
 	{
-		Cap->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
+		// 코드에서 보스 주먹 충돌 프리셋 강제 적용
+		// - 월드에는 Block
+		// - Mario/Pawn, CapProjectile에는 Overlap (캡쳐/강제해제 이벤트용)
+		Cap->SetCollisionProfileName(TEXT("Monster Capsule"));
+		Cap->SetGenerateOverlapEvents(true);
+		Cap->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
+		Cap->SetCollisionResponseToChannel(ECC_GameTraceChannel1, ECR_Overlap); // CapProjectile
 	}
 
 	if (USkeletalMeshComponent* Sk = GetMesh())
 	{
-		Sk->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Sk->SetCollisionProfileName(TEXT("Monster Mesh"));
+		Sk->SetGenerateOverlapEvents(false);
+	}
+
+	if (ContactSphere)
+	{
+		ContactSphere->SetCollisionProfileName(TEXT("Monster_ContactSphere"));
+		ContactSphere->SetGenerateOverlapEvents(true);
 	}
 
 	SetDamageOverlapEnabled(false);

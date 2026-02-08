@@ -21,8 +21,11 @@ AAttrenashinBoss::AAttrenashinBoss()
 	HeadHitSphere = CreateDefaultSubobject<USphereComponent>(TEXT("HeadHitSphere"));
 	HeadHitSphere->SetupAttachment(Root);
 	HeadHitSphere->InitSphereRadius(180.f);
+	// 보스 머리 피격용: 캡(투사체)만 감지
 	HeadHitSphere->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
-	HeadHitSphere->SetCollisionResponseToAllChannels(ECR_Overlap);
+	HeadHitSphere->SetCollisionProfileName(TEXT("Monster_ContactSphere"));
+	HeadHitSphere->SetCollisionResponseToAllChannels(ECR_Ignore);
+	HeadHitSphere->SetCollisionResponseToChannel(ECC_GameTraceChannel1, ECR_Overlap); // CapProjectile
 	HeadHitSphere->SetGenerateOverlapEvents(true);
 }
 
@@ -68,8 +71,6 @@ void AAttrenashinBoss::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 
-	UpdateRetreat(DeltaSeconds);
-
 	if (Phase != EAttrenashinPhase::Phase1) return;
 
 	AAttrenashinFist* CapturedNow = nullptr;
@@ -94,13 +95,6 @@ void AAttrenashinBoss::Tick(float DeltaSeconds)
 	else if (bCaptureBarrageActive)
 	{
 		StopCaptureBarrage();
-	}
-
-	// 캡쳐 실패 직후 짧은 쿨다운
-	if (Phase1FailCooldownRemain > 0.f)
-	{
-		Phase1FailCooldownRemain -= DeltaSeconds;
-		return;
 	}
 
 	// IceRain 상태 중엔 자동 스턴 슬램 트리거 금지
@@ -165,7 +159,7 @@ void AAttrenashinBoss::StartIceRainByBothFists()
 	AAttrenashinFist* R = RightFist.Get();
 	if (!L || !R) return;
 
-	// 샤드레인 공격은 양손 동시 시작
+	// 요구사항: 샤드레인 공격은 양손 동시 시작
 	if (L->IsIdle() && R->IsIdle())
 	{
 		L->StartIceRainSlam();
@@ -185,19 +179,8 @@ void AAttrenashinBoss::OnHeadBeginOverlap(UPrimitiveComponent* OverlappedComp, A
 		return;
 
 	HeadHitCount++;
-
-	// Phase1: 캡쳐 윈도우 중 머리 타격 성공 시 Phase2 진입
-	if (Phase == EAttrenashinPhase::Phase1 && bPhase1CaptureWindowActive)
-	{
-		EndPhase1CaptureWindow(true);
-		EnterPhase(EAttrenashinPhase::Phase2);
-		UE_LOG(LogTemp, Warning, TEXT("[AttrenashinBoss] Head hit success in Phase1 -> Phase2"));
-		return;
-	}
-
 	UE_LOG(LogTemp, Warning, TEXT("[AttrenashinBoss] HeadHitCount=%d"), HeadHitCount);
 }
-
 
 void AAttrenashinBoss::PerformGroundSlam_IceShardRain()
 {
@@ -245,8 +228,6 @@ void AAttrenashinBoss::SpawnIceShardsAt(const FVector& Center)
 void AAttrenashinBoss::NotifyFistCaptured(AAttrenashinFist* CapturedFist)
 {
 	if (!CapturedFist) return;
-	if (Phase != EAttrenashinPhase::Phase1) return;
-
 	StartCaptureBarrage(CapturedFist);
 }
 
@@ -258,14 +239,7 @@ void AAttrenashinBoss::NotifyFistReleased(AAttrenashinFist* ReleasedFist)
 	{
 		StopCaptureBarrage();
 	}
-
-	// Phase1 캡쳐 윈도우 중 해제되면 실패 처리
-	if (Phase == EAttrenashinPhase::Phase1 && bPhase1CaptureWindowActive)
-	{
-		EndPhase1CaptureWindow(false);
-	}
 }
-
 
 void AAttrenashinBoss::NotifyBarrageShardHitCapturedFist(AAttrenashinFist* HitFist, const FVector& ShardVelocity)
 {
@@ -284,116 +258,6 @@ void AAttrenashinBoss::NotifyBarrageShardHitCapturedFist(AAttrenashinFist* HitFi
 		StopCaptureBarrage();
 	}
 }
-
-void AAttrenashinBoss::EnterPhase(EAttrenashinPhase NewPhase)
-{
-	if (Phase == NewPhase) return;
-
-	// 페이즈 전환 시 캡쳐 윈도우/배러지 정리
-	GetWorldTimerManager().ClearTimer(Phase1CaptureWindowTimerHandle);
-	bPhase1CaptureWindowActive = false;
-	Phase1CaptureResult = EPhase1CaptureResult::None;
-	Phase1FailCooldownRemain = 0.f;
-	StopCaptureBarrage();
-
-	Phase = NewPhase;
-
-	if (Phase == EAttrenashinPhase::Phase1)
-	{
-		SlamAttemptTimer = SlamAttemptInterval;
-		return;
-	}
-
-	// 현재 구현 범위: Phase2/3 진입 시 1회 양손 IceRain 연출
-	if (Phase == EAttrenashinPhase::Phase2 || Phase == EAttrenashinPhase::Phase3)
-	{
-		GetWorldTimerManager().SetTimerForNextTick([this]()
-		{
-			StartIceRainByBothFists();
-		});
-	}
-}
-
-void AAttrenashinBoss::BeginPhase1CaptureWindow(AAttrenashinFist* CapturedFist)
-{
-	if (!CapturedFist) return;
-	if (Phase != EAttrenashinPhase::Phase1) return;
-
-	bPhase1CaptureWindowActive = true;
-	Phase1CaptureResult = EPhase1CaptureResult::None;
-
-	GetWorldTimerManager().ClearTimer(Phase1CaptureWindowTimerHandle);
-	const float WindowSec = FMath::Max(0.1f, Phase1CaptureWindowSeconds);
-	GetWorldTimerManager().SetTimer(
-		Phase1CaptureWindowTimerHandle,
-		this,
-		&AAttrenashinBoss::OnPhase1CaptureWindowTimeout,
-		WindowSec,
-		false);
-
-	StartRetreatMotion();
-}
-
-void AAttrenashinBoss::EndPhase1CaptureWindow(bool bSuccess)
-{
-	if (!bPhase1CaptureWindowActive) return;
-
-	GetWorldTimerManager().ClearTimer(Phase1CaptureWindowTimerHandle);
-	bPhase1CaptureWindowActive = false;
-	Phase1CaptureResult = bSuccess ? EPhase1CaptureResult::Success : EPhase1CaptureResult::Fail;
-
-	if (!bSuccess)
-	{
-		Phase1FailCooldownRemain = FMath::Max(0.f, Phase1PostFailCooldownSeconds);
-		SlamAttemptTimer = SlamAttemptInterval;
-	}
-}
-
-void AAttrenashinBoss::OnPhase1CaptureWindowTimeout()
-{
-	if (!bPhase1CaptureWindowActive) return;
-
-	if (AAttrenashinFist* Captured = BarrageCapturedFist.Get())
-	{
-		if (Captured->IsCapturedDriving())
-		{
-			Captured->ForceReleaseCaptureByBoss();
-		}
-	}
-
-	EndPhase1CaptureWindow(false);
-}
-
-void AAttrenashinBoss::StartRetreatMotion()
-{
-	if (Phase1RetreatDistance <= 0.f || Phase1RetreatSeconds <= KINDA_SMALL_NUMBER)
-	{
-		return;
-	}
-
-	RetreatStart = GetActorLocation();
-	const FVector BackDir = -GetActorForwardVector().GetSafeNormal();
-	RetreatTarget = RetreatStart + BackDir * Phase1RetreatDistance;
-	RetreatT = 0.f;
-	bRetreating = true;
-}
-
-void AAttrenashinBoss::UpdateRetreat(float DeltaSeconds)
-{
-	if (!bRetreating) return;
-
-	RetreatT += DeltaSeconds;
-	const float Alpha = FMath::Clamp(RetreatT / FMath::Max(0.01f, Phase1RetreatSeconds), 0.f, 1.f);
-	const float Eased = FMath::InterpEaseOut(0.f, 1.f, Alpha, 2.f);
-	const FVector NewLoc = FMath::Lerp(RetreatStart, RetreatTarget, Eased);
-	SetActorLocation(NewLoc, true);
-
-	if (Alpha >= 1.f - KINDA_SMALL_NUMBER)
-	{
-		bRetreating = false;
-	}
-}
-
 
 void AAttrenashinBoss::StartCaptureBarrage(AAttrenashinFist* CapturedFist)
 {
@@ -414,15 +278,13 @@ void AAttrenashinBoss::StartCaptureBarrage(AAttrenashinFist* CapturedFist)
 
 	if (!Throwing) return;
 
-	// 캡쳐 시작 시 반대손은 기존 스턴 패턴을 끊고 소켓 대기로 전환
+	// 요구사항: 캡쳐 시작 시 반대손은 기존 스턴 패턴을 끊고 소켓 대기로 전환
 	Throwing->AbortAttackAndReturnForBarrage(0.20f);
 
 	BarrageCapturedFist = CapturedFist;
 	BarrageThrowingFist = Throwing;
 	BarrageHitCount = 0;
 	bCaptureBarrageActive = true;
-
-	BeginPhase1CaptureWindow(CapturedFist);
 
 	// 정확히 1초 주기 발사
 	const float Period = FMath::Max(0.1f, CaptureBarrageIntervalSeconds);
@@ -480,7 +342,7 @@ void AAttrenashinBoss::HandleCaptureBarrageTick()
 		Throwing->AbortAttackAndReturnForBarrage(0.15f);
 	}
 
-	// 플레이어 방향으로 발사
+	// 플레이어 방향으로 발사(요구사항)
 	const FVector StartBase = GetAnchorLocationBySide(Throwing->GetFistSide());
 	const FVector TargetLoc = GetPlayerTarget() ? GetPlayerTarget()->GetActorLocation() : Captured->GetActorLocation();
 
