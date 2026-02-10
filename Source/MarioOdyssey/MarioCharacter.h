@@ -109,7 +109,7 @@ protected:
 	float WalkSpeed = 200.f;
 	
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Move")
-	float RunSpeed = 500.f;
+	float RunSpeed = 690.f;
 	
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Move")
 	float TurnRate = 720.f;

@@ -58,10 +58,10 @@ protected:
 	float ImpactDamageToMonstersWhenCaptured = 9999.f; // 일단 확실하게 죽이게 크게
 
 	UPROPERTY(EditDefaultsOnly, Category="BulletBill|Life")
-	float MaxLifeSeconds = 8.f;
+	float MaxLifeSeconds = 15.f;
 
 	UPROPERTY(EditDefaultsOnly, Category="BulletBill|Life")
-	float CapturedMaxLifeSeconds = 6.f;
+	float CapturedMaxLifeSeconds = 15.f;
 
 	// 폭발 연출은 BP에서 처리(나이아가라/사운드)
 	UFUNCTION(BlueprintImplementableEvent, Category="BulletBill|FX")

@@ -25,7 +25,7 @@ AAttrenashinBoss::AAttrenashinBoss()
 	HeadHitSphere->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
 	HeadHitSphere->SetCollisionProfileName(TEXT("Monster_ContactSphere"));
 	HeadHitSphere->SetCollisionResponseToAllChannels(ECR_Ignore);
-	HeadHitSphere->SetCollisionResponseToChannel(ECC_GameTraceChannel1, ECR_Overlap); // CapProjectile
+	HeadHitSphere->SetCollisionResponseToChannel(ECC_GameTraceChannel2, ECR_Overlap); // CapProjectile
 	HeadHitSphere->SetGenerateOverlapEvents(true);
 }
 
