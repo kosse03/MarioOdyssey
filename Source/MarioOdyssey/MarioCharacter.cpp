@@ -7,6 +7,9 @@
 #include "Camera/CameraComponent.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "GameFramework/PlayerController.h"
+#include "Camera/PlayerCameraManager.h"
+#include "TimerManager.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/BoxComponent.h"
 #include "EnhancedInputComponent.h"
@@ -187,6 +190,23 @@ void AMarioCharacter::OnCaptureBegin()
 
 void AMarioCharacter::OnCaptureEnd()
 {
+	// 시각/충돌 복구(캡쳐/리스폰 경로 공용 안전장치)
+	SetActorHiddenInGame(false);
+	SetActorEnableCollision(true);
+	if (USkeletalMeshComponent* MeshComp = GetMesh())
+	{
+		MeshComp->SetHiddenInGame(false, true);
+		MeshComp->SetVisibility(true, true);
+		MeshComp->SetComponentTickEnabled(true);
+		MeshComp->bPauseAnims = false;
+		MeshComp->bNoSkeletonUpdate = false;
+		if (!MeshComp->GetAnimInstance())
+		{
+			MeshComp->InitAnim(true);
+		}
+		MeshComp->MarkRenderStateDirty();
+	}
+
 	// HitStun 정리(언캡쳐 직후 스턴/입력락 잔여물 제거)
 	if (UWorld* World = GetWorld())
 	{
@@ -730,29 +750,226 @@ void AMarioCharacter::OnEndCrouch(float HalfHeightAdjust, float ScaledHalfHeight
 	ApplyMoveSpeed();
 }
 
+
+
+void AMarioCharacter::ForceBlackFade(float FromAlpha, float ToAlpha, float DurationSeconds)
+{
+	APlayerController* PC = Cast<APlayerController>(Controller);
+	if (!PC)
+	{
+		PC = Cast<APlayerController>(GetController());
+	}
+	if (!PC || !PC->PlayerCameraManager)
+	{
+		return;
+	}
+
+	PC->PlayerCameraManager->StartCameraFade(
+		FromAlpha,
+		ToAlpha,
+		FMath::Max(0.f, DurationSeconds),
+		FLinearColor::Black,
+		false,
+		true
+	);
+}
+
+void AMarioCharacter::StartDeathSequence()
+{
+	if (bDeathSequenceActive)
+	{
+		return;
+	}
+
+	bDeathSequenceActive = true;
+	bGameOver = true;
+	bIsDead = true;
+
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(HitStunTimer);
+		World->GetTimerManager().ClearTimer(DeathAnimLeadTimer);
+		World->GetTimerManager().ClearTimer(DeathFadeInTimer);
+		World->GetTimerManager().ClearTimer(DeathFadeOutTimer);
+	}
+
+	// 캡쳐 중이라면 먼저 해제
+	if (CaptureComp && CaptureComp->IsCapturing())
+	{
+		CaptureComp->ForceReleaseForGameOver();
+	}
+
+	// 행동/이동 잔여 상태 초기화
+	OnCaptureEnd();
+
+	bHitStun = false;
+	bInputLocked = true;
+
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		MoveComp->StopMovementImmediately();
+		MoveComp->DisableMovement();
+	}
+
+	if (USkeletalMeshComponent* MeshComp = GetMesh())
+	{
+		if (UAnimInstance* Anim = MeshComp->GetAnimInstance())
+		{
+			Anim->StopAllMontages(0.05f);
+			if (Montage_Death)
+			{
+				Anim->Montage_Play(Montage_Death, 1.0f);
+			}
+		}
+	}
+
+	if (UWorld* World = GetWorld())
+	{
+		const float Lead = FMath::Max(0.f, DeathAnimLeadSeconds);
+		if (Lead <= KINDA_SMALL_NUMBER)
+		{
+			BeginDeathFadeIn();
+		}
+		else
+		{
+			World->GetTimerManager().SetTimer(DeathAnimLeadTimer, this, &AMarioCharacter::BeginDeathFadeIn, Lead, false);
+		}
+	}
+}
+
+void AMarioCharacter::BeginDeathFadeIn()
+{
+	if (!bDeathSequenceActive)
+	{
+		return;
+	}
+
+	ForceBlackFade(0.f, 1.f, DeathFadeInSeconds);
+
+	if (UWorld* World = GetWorld())
+	{
+		const float Wait = FMath::Max(0.f, DeathFadeInSeconds) + FMath::Max(0.f, DeathBlackHoldSeconds);
+		if (Wait <= KINDA_SMALL_NUMBER)
+		{
+			PerformRespawnFromDeath();
+		}
+		else
+		{
+			World->GetTimerManager().SetTimer(DeathFadeInTimer, this, &AMarioCharacter::PerformRespawnFromDeath, Wait, false);
+		}
+	}
+}
+
+void AMarioCharacter::PerformRespawnFromDeath()
+{
+	if (!bDeathSequenceActive)
+	{
+		return;
+	}
+
+	// 리스폰 위치 이동(체크포인트 없으면 현재 위치 유지)
+	TeleportToCheckpoint(true);
+
+	SetActorHiddenInGame(false);
+	SetActorEnableCollision(true);
+	if (USkeletalMeshComponent* MeshComp = GetMesh())
+	{
+		MeshComp->SetHiddenInGame(false, true);
+		MeshComp->SetVisibility(true, true);
+		MeshComp->SetComponentTickEnabled(true);
+		MeshComp->bPauseAnims = false;
+		MeshComp->bNoSkeletonUpdate = false;
+		if (!MeshComp->GetAnimInstance())
+		{
+			MeshComp->InitAnim(true);
+		}
+		MeshComp->MarkRenderStateDirty();
+	}
+
+	CurrentHP = MaxHP;
+
+	// 리스폰 후 상태 초기화
+	OnCaptureEnd();
+	bHitStun = false;
+	bInputLocked = true;
+
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		MoveComp->StopMovementImmediately();
+		MoveComp->SetMovementMode(MOVE_Walking);
+	}
+
+	ForceBlackFade(1.f, 0.f, DeathFadeOutSeconds);
+
+	if (UWorld* World = GetWorld())
+	{
+		const float Wait = FMath::Max(0.f, DeathFadeOutSeconds);
+		if (Wait <= KINDA_SMALL_NUMBER)
+		{
+			FinishDeathSequence();
+		}
+		else
+		{
+			World->GetTimerManager().SetTimer(DeathFadeOutTimer, this, &AMarioCharacter::FinishDeathSequence, Wait, false);
+		}
+	}
+}
+
+void AMarioCharacter::FinishDeathSequence()
+{
+	if (!bDeathSequenceActive)
+	{
+		return;
+	}
+
+	bDeathSequenceActive = false;
+	bGameOver = false;
+	bIsDead = false;
+
+	bHitStun = false;
+	bInputLocked = false;
+
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		if (MoveComp->MovementMode == MOVE_None)
+		{
+			MoveComp->SetMovementMode(MOVE_Walking);
+		}
+	}
+}
+
+void AMarioCharacter::FellOutOfWorld(const UDamageType& dmgType)
+{
+	CurrentHP = 0.f;
+	StartDeathSequence();
+}
+
+
 float AMarioCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent,
 	class AController* EventInstigator, AActor* DamageCauser)
 {
-	if (bGameOver) return 0.f;
+	if (bDeathSequenceActive || bGameOver) return 0.f;
 	if (DamageAmount <= 0.f) return 0.f;
+
+	// 정책: 캡쳐 중에는 마리오가 직접 피해를 받지 않음
+	if (CaptureComp && CaptureComp->IsCapturing())
+	{
+		return 0.f;
+	}
 
 	CurrentHP = FMath::Clamp(CurrentHP - DamageAmount, 0.f, MaxHP);
 
-	// 피격 UI/사운드/무적시간
 	UE_LOG(LogTemp, Warning, TEXT("[Mario] Damage=%.2f HP=%.2f/%.2f"), DamageAmount, CurrentHP, MaxHP);
 
-	// 피격 스턴: Damage 파이프라인 기준(접촉 데미지/투사체 등 모든 데미지에 적용)
-	// 캡쳐 중에는 마리오가 숨김/비활성이라 스턴/입력락은 적용하지 않음.
-	if (CurrentHP > 0.f && !(CaptureComp && CaptureComp->IsCapturing()))
+	// 생존 시 피격 스턴
+	if (CurrentHP > 0.f)
 	{
-		// 현재 액션 잔여물 정리(애니 전환/입력 잠금 우선)
 		if (bIsRolling)
 		{
 			AbortRoll(true);
 		}
 		EndDive();
 
-		// GroundPound 중이면 강제 중단(중력/타이머 복원)
 		if (bIsGroundPoundPreparing || bIsGroundPounding)
 		{
 			bIsGroundPoundPreparing = false;
@@ -777,12 +994,10 @@ float AMarioCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const&
 			State.GroundPound = EGroundPoundPhase::None;
 		}
 
-		// 특수 점프 플래그 정리(피격 모션 우선)
 		bIsLongJumping = false;
 		bIsBackflipping = false;
 		bIsPoundJumping = false;
 
-		// 입력 잠금 + 타이머
 		if (UWorld* World = GetWorld())
 		{
 			bHitStun = true;
@@ -791,27 +1006,16 @@ float AMarioCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const&
 			World->GetTimerManager().SetTimer(HitStunTimer, this, &AMarioCharacter::ClearHitStun, HitStunSeconds, false);
 		}
 
-		// 즉시 정지(이후 LaunchCharacter 등 외부 넉백은 정상 적용)
 		if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
 		{
 			MoveComp->StopMovementImmediately();
 		}
+
+		return DamageAmount;
 	}
 
-	if (CurrentHP <= 0.f)
-	{
-		bGameOver = true;
-
-		// HP=0일 때만 캡쳐 해제
-		if (CaptureComp && CaptureComp->IsCapturing())
-		{
-			CaptureComp->ForceReleaseForGameOver();
-		}
-
-		// 최소 처리
-		GetCharacterMovement()->StopMovementImmediately();
-	}
-
+	// HP <= 0: 전 맵 공통 사망 시퀀스
+	StartDeathSequence();
 	return DamageAmount;
 }
 

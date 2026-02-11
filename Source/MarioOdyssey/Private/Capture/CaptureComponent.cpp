@@ -173,7 +173,37 @@ bool UCaptureComponent::ReleaseCapture(ECaptureReleaseReason Reason)
 
 void UCaptureComponent::ForceReleaseForGameOver()
 {
-	ReleaseCapture(ECaptureReleaseReason::GameOver);
+	// 일반 해제 경로 우선
+	if (ReleaseCapture(ECaptureReleaseReason::GameOver))
+	{
+		return;
+	}
+
+	// 비정상 경로(컨트롤러 유실 등) 안전 복구
+	if (!OriginalMario.IsValid())
+	{
+		return;
+	}
+
+	APawn* CPawn = CapturedPawn.Get();
+	if (CPawn)
+	{
+		CPawn->OnTakeAnyDamage.RemoveDynamic(this, &UCaptureComponent::HandleCapturedPawnAnyDamage);
+	}
+
+	DetachMario();
+	ApplyMarioCaptureHide(false);
+	OriginalMario->OnCaptureEnd();
+	OriginalMario->SetCaptureControlRotationOverride(false);
+
+	if (CPawn && CPawn->GetController() == nullptr)
+	{
+		CPawn->SpawnDefaultController();
+	}
+
+	CapturedActor.Reset();
+	CapturedPawn.Reset();
+	bIsCapturing = false;
 }
 
 void UCaptureComponent::ApplyMarioCaptureHide(bool bHide)
@@ -269,11 +299,12 @@ void UCaptureComponent::HandleCapturedPawnAnyDamage(AActor* DamagedActor, float 
 	if (!bIsCapturing) return;
 	if (!CapturedPawn.IsValid()) return;
 	if (DamagedActor != CapturedPawn.Get()) return;
+	if (!OriginalMario.IsValid()) return;
 
-	// 정책 변경:
-	// 1) 캡쳐 중에는 마리오 HP를 절대 깎지 않는다.
-	// 2) 피격 리액션/넉백은 캡쳐된 대상 쪽에서만 처리한다.
-	// 3) 강제 해제는 보스의 카운터 샤드 3회 적중 로직에서만 수행한다.
+	// 정책: 캡쳐 중에는 마리오가 직접 피해를 받지 않음.
+	// (강제 해제/카운터 샤드 카운트는 보스/캡쳐 몬스터 로직에서 처리)
+
+	// 몬스터 피격 리액션(넉백/스턴/애니)
 	if (CapturedActor.IsValid() && CapturedActor->GetClass()->ImplementsInterface(UCapturableInterface::StaticClass()))
 	{
 		ICapturableInterface::Execute_OnCapturedPawnDamaged(CapturedActor.Get(), Damage, InstigatedBy, DamageCauser);
