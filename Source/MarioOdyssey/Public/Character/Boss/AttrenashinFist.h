@@ -166,7 +166,22 @@ private:
 	UPROPERTY(EditDefaultsOnly, Category="Attrenashin|CapturedDrive")
 	float CapturedYawRate = 220.f;
 
+	// 캡쳐 주행 중 카운터 샤드 피격 반응(가속 누적/지면 이탈 방지용)
+	UPROPERTY(EditDefaultsOnly, Category="Attrenashin|CapturedDrive", meta=(ClampMin="0.0"))
+	float CapturedKnockbackMaxSpeed = 900.f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Attrenashin|CapturedDrive", meta=(ClampMin="0.0"))
+	float CapturedKnockbackDamping = 8.0f;
+
+	// 보스 아레나 설계 기준: 캡쳐 주행 중 월드 Z 고정
+	UPROPERTY(EditDefaultsOnly, Category="Attrenashin|CapturedDrive")
+	bool bLockCapturedDriveWorldZ = true;
+
+	UPROPERTY(EditDefaultsOnly, Category="Attrenashin|CapturedDrive", meta=(EditCondition="bLockCapturedDriveWorldZ"))
+	float CapturedDriveLockedWorldZ = 1800.f;
+
 	float StunRemain = 0.f;
+	FVector CapturedKnockbackVelocity = FVector::ZeroVector;
 
 	void EnterState(EFistState NewState);
 

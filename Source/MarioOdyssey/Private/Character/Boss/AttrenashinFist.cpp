@@ -27,15 +27,15 @@ AAttrenashinFist::AAttrenashinFist()
 		// 코드에서 보스 주먹 충돌 프리셋 강제 적용
 		// - 월드에는 Block
 		// - Mario/Pawn, CapProjectile에는 Overlap (캡쳐/강제해제 이벤트용)
-		Cap->SetCollisionProfileName(TEXT("Monster_Capsule"));
+		Cap->SetCollisionProfileName(TEXT("Monster Capsule"));
 		Cap->SetGenerateOverlapEvents(true);
 		Cap->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
-		Cap->SetCollisionResponseToChannel(ECC_GameTraceChannel2, ECR_Overlap); // CapProjectile
+		Cap->SetCollisionResponseToChannel(ECC_GameTraceChannel1, ECR_Overlap); // CapProjectile
 	}
 
 	if (USkeletalMeshComponent* Sk = GetMesh())
 	{
-		Sk->SetCollisionProfileName(TEXT("Monster_Mesh"));
+		Sk->SetCollisionProfileName(TEXT("Monster Mesh"));
 		Sk->SetGenerateOverlapEvents(false);
 	}
 
@@ -92,11 +92,19 @@ void AAttrenashinFist::OnCapturedExtra(AController* Capturer, const FCaptureCont
 
 	State = EFistState::CapturedDrive;
 	SetDamageOverlapEnabled(false);
+	CapturedKnockbackVelocity = FVector::ZeroVector;
 
 	if (UCharacterMovementComponent* Move = GetCharacterMovement())
 	{
 		Move->StopMovementImmediately();
 		Move->DisableMovement();
+	}
+
+	if (bLockCapturedDriveWorldZ)
+	{
+		FVector L = GetActorLocation();
+		L.Z = CapturedDriveLockedWorldZ;
+		SetActorLocation(L, false, nullptr, ETeleportType::None);
 	}
 
 	if (Boss.IsValid())
@@ -109,6 +117,7 @@ void AAttrenashinFist::OnReleasedExtra(const FCaptureReleaseContext& Context)
 {
 	SetIgnoreIceStun(false);
 	SetDamageOverlapEnabled(false);
+	CapturedKnockbackVelocity = FVector::ZeroVector;
 
 	if (UCharacterMovementComponent* Move = GetCharacterMovement())
 	{
@@ -166,13 +175,31 @@ void AAttrenashinFist::ApplyCapturedShardKnockback(const FVector& ShardVelocity,
 {
 	if (!bIsCaptured) return;
 
+	(void)Upward; // 캡쳐 중 Z 고정 정책으로 세로 넉백은 사용하지 않음
+
 	FVector Dir = ShardVelocity.GetSafeNormal();
+	Dir.Z = 0.f;
+	Dir = Dir.GetSafeNormal();
 	if (Dir.IsNearlyZero())
 	{
 		Dir = GetActorForwardVector();
+		Dir.Z = 0.f;
+		Dir = Dir.GetSafeNormal();
 	}
 
-	LaunchCharacter(Dir * Strength + FVector(0.f, 0.f, Upward), true, true);
+	if (Dir.IsNearlyZero())
+	{
+		return;
+	}
+
+	CapturedKnockbackVelocity += Dir * FMath::Max(0.f, Strength);
+	CapturedKnockbackVelocity.Z = 0.f;
+
+	const float MaxSpd = FMath::Max(0.f, CapturedKnockbackMaxSpeed);
+	if (MaxSpd > 0.f)
+	{
+		CapturedKnockbackVelocity = CapturedKnockbackVelocity.GetClampedToMaxSize(MaxSpd);
+	}
 }
 
 
@@ -612,8 +639,24 @@ void AAttrenashinFist::TickCapturedDrive(float Dt)
 	R.Yaw += Steer.X * CapturedYawRate * Dt;
 	SetActorRotation(R, ETeleportType::None);
 
-	const FVector Delta = GetActorForwardVector() * CapturedDriveSpeed * Dt;
+	const FVector DriveDelta = GetActorForwardVector() * CapturedDriveSpeed * Dt;
+	CapturedKnockbackVelocity.Z = 0.f;
+	const FVector KnockDelta = CapturedKnockbackVelocity * Dt;
 
 	FHitResult Hit;
-	AddActorWorldOffset(Delta, true, &Hit);
+	AddActorWorldOffset(DriveDelta + KnockDelta, true, &Hit);
+
+	CapturedKnockbackVelocity = FMath::VInterpTo(
+		CapturedKnockbackVelocity,
+		FVector::ZeroVector,
+		Dt,
+		FMath::Max(0.f, CapturedKnockbackDamping));
+	CapturedKnockbackVelocity.Z = 0.f;
+
+	if (bLockCapturedDriveWorldZ)
+	{
+		FVector L = GetActorLocation();
+		L.Z = CapturedDriveLockedWorldZ;
+		SetActorLocation(L, false, nullptr, ETeleportType::None);
+	}
 }

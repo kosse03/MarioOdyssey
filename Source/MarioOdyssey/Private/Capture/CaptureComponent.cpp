@@ -269,13 +269,11 @@ void UCaptureComponent::HandleCapturedPawnAnyDamage(AActor* DamagedActor, float 
 	if (!bIsCapturing) return;
 	if (!CapturedPawn.IsValid()) return;
 	if (DamagedActor != CapturedPawn.Get()) return;
-	if (!OriginalMario.IsValid()) return;
 
-	// 정책: 캡쳐 중 받은 모든 데미지는 마리오 HP로 라우팅 (캡쳐 해제 X)
-	const TSubclassOf<UDamageType> DT = DamageType ? DamageType->GetClass() : UDamageType::StaticClass();
-	UGameplayStatics::ApplyDamage(OriginalMario.Get(), Damage, InstigatedBy, DamageCauser, DT);
-
-	// 몬스터 피격 리액션(HP는 깎지 않더라도 넉백/스턴/애니 재생은 여기서 시작 가능)
+	// 정책 변경:
+	// 1) 캡쳐 중에는 마리오 HP를 절대 깎지 않는다.
+	// 2) 피격 리액션/넉백은 캡쳐된 대상 쪽에서만 처리한다.
+	// 3) 강제 해제는 보스의 카운터 샤드 3회 적중 로직에서만 수행한다.
 	if (CapturedActor.IsValid() && CapturedActor->GetClass()->ImplementsInterface(UCapturableInterface::StaticClass()))
 	{
 		ICapturableInterface::Execute_OnCapturedPawnDamaged(CapturedActor.Get(), Damage, InstigatedBy, DamageCauser);

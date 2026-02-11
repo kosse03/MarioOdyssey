@@ -30,6 +30,18 @@ public:
 	void OnCaptureBegin();
 	UFUNCTION(BlueprintCallable, Category="Mario|Capture")
 	void OnCaptureEnd();
+
+	UFUNCTION(BlueprintCallable, Category="Mario|Checkpoint")
+	void SetCheckpointTransform(const FTransform& InCheckpointTransform);
+
+	UFUNCTION(BlueprintCallable, Category="Mario|Checkpoint")
+	bool HasCheckpoint() const { return bHasCheckpoint; }
+
+	UFUNCTION(BlueprintCallable, Category="Mario|Checkpoint")
+	FTransform GetCheckpointTransform() const { return SavedCheckpointTransform; }
+
+	UFUNCTION(BlueprintCallable, Category="Mario|Checkpoint")
+	bool TeleportToCheckpoint(bool bResetVelocity = true);
 	
 protected:
 	virtual void BeginPlay() override;
@@ -434,6 +446,12 @@ protected:
 	
 	UPROPERTY(BlueprintReadOnly, Category="Mario|Combat", meta=(AllowPrivateAccess="true")) // 피격 스턴 animbp
 	bool bHitStun = false;
+
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category="Mario|Checkpoint", meta=(AllowPrivateAccess="true"))
+	bool bHasCheckpoint = false;
+
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category="Mario|Checkpoint", meta=(AllowPrivateAccess="true"))
+	FTransform SavedCheckpointTransform = FTransform::Identity;
 	
 	// 플레이어가 몬스터와 닿았을 때(블로킹) 데미지/넉백
 	UPROPERTY(EditDefaultsOnly, Category="Mario|Combat")

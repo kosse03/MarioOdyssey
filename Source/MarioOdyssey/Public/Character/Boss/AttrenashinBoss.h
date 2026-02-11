@@ -79,6 +79,12 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category="Boss|Head")
 	bool bRequireCapturedFistForHeadHit = true;
 
+	UPROPERTY(EditDefaultsOnly, Category="Boss|Head")
+	float HeadContactDamage = 1.f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Boss|Head")
+	float HeadContactDamageCooldown = 0.4f;
+
 	UPROPERTY(EditDefaultsOnly, Category="Boss|IceShard")
 	TSubclassOf<class AIceShardActor> IceShardClass;
 
@@ -142,6 +148,7 @@ private:
 	float SlamAttemptTimer = 0.f;
 	bool bNextLeft = true;
 	int32 HeadHitCount = 0;
+	float LastHeadContactDamageTime = -1000.f;
 
 	FTimerHandle Phase1CaptureWindowTimerHandle;
 	bool bPhase1CaptureWindowActive = false;

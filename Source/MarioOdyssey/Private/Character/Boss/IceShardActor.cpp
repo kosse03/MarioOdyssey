@@ -21,11 +21,11 @@ AIceShardActor::AIceShardActor()
 	Sphere = CreateDefaultSubobject<USphereComponent>(TEXT("Sphere"));
 	Sphere->SetupAttachment(Root);
 	Sphere->InitSphereRadius(28.f);
+	Sphere->SetCollisionProfileName(TEXT("Boss_IceShard_Rain"));
 	Sphere->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-	Sphere->SetCollisionObjectType(ECC_WorldDynamic);
 	Sphere->SetCollisionResponseToAllChannels(ECR_Ignore);
 	Sphere->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
-	Sphere->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Block);
+	Sphere->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Ignore);
 	Sphere->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
 	Sphere->SetGenerateOverlapEvents(true);
 
@@ -63,10 +63,11 @@ void AIceShardActor::InitShard(AActor* InOwnerBoss, float InDamage, TSubclassOf<
 	// 일반 얼음비: 월드 충돌 Block, Mario만 Overlap 데미지
 	if (Sphere)
 	{
+		Sphere->SetCollisionProfileName(TEXT("Boss_IceShard_Rain"));
 		Sphere->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 		Sphere->SetCollisionResponseToAllChannels(ECR_Ignore);
 		Sphere->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
-		Sphere->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Block);
+		Sphere->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Ignore);
 		Sphere->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
 	}
 
@@ -94,11 +95,13 @@ void AIceShardActor::InitBarrageShard(AActor* InOwnerBoss, AAttrenashinFist* InC
 	// - Mario/주먹에는 Overlap(피격 이벤트용)
 	if (Sphere)
 	{
+		Sphere->SetCollisionProfileName(TEXT("Boss_IceShard_Counter"));
 		Sphere->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 		Sphere->SetCollisionResponseToAllChannels(ECR_Ignore);
 		Sphere->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
-		Sphere->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Block);
+		Sphere->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Ignore);
 		Sphere->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
+		Sphere->SetCollisionResponseToChannel(ECC_GameTraceChannel1, ECR_Overlap); // Monster(주먹)
 
 		if (InCapturedFist && InCapturedFist->GetCapsuleComponent())
 		{

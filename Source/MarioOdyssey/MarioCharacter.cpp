@@ -269,6 +269,8 @@ void AMarioCharacter::BeginPlay()
 	Super::BeginPlay();
 	
 	CurrentHP = MaxHP;
+	bHasCheckpoint = true;
+	SavedCheckpointTransform = GetActorTransform();
 	
 	if (SpringArm)
 	{
@@ -324,6 +326,40 @@ void AMarioCharacter::BeginPlay()
 	{
 		Capsule->OnComponentHit.AddDynamic(this, &AMarioCharacter::OnMarioCapsuleHit);
 	}
+}
+
+void AMarioCharacter::SetCheckpointTransform(const FTransform& InCheckpointTransform)
+{
+	SavedCheckpointTransform = InCheckpointTransform;
+	bHasCheckpoint = true;
+
+	UE_LOG(LogTemp, Log, TEXT("[Checkpoint] Activated: %s"), *SavedCheckpointTransform.GetLocation().ToString());
+}
+
+bool AMarioCharacter::TeleportToCheckpoint(bool bResetVelocity)
+{
+	if (!bHasCheckpoint)
+	{
+		return false;
+	}
+
+	const bool bTeleported = SetActorLocationAndRotation(
+		SavedCheckpointTransform.GetLocation(),
+		SavedCheckpointTransform.GetRotation().Rotator(),
+		false,
+		nullptr,
+		ETeleportType::TeleportPhysics
+	);
+
+	if (bTeleported && bResetVelocity)
+	{
+		if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+		{
+			MoveComp->StopMovementImmediately();
+		}
+	}
+
+	return bTeleported;
 }
 
 void AMarioCharacter::Landed(const FHitResult& Hit)

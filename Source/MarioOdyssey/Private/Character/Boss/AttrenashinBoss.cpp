@@ -1,6 +1,7 @@
 #include "Character/Boss/AttrenashinBoss.h"
 #include "Character/Boss/AttrenashinFist.h"
 #include "Character/Boss/IceShardActor.h"
+#include "MarioOdyssey/MarioCharacter.h"
 
 #include "Components/SphereComponent.h"
 #include "Kismet/GameplayStatics.h"
@@ -21,11 +22,15 @@ AAttrenashinBoss::AAttrenashinBoss()
 	HeadHitSphere = CreateDefaultSubobject<USphereComponent>(TEXT("HeadHitSphere"));
 	HeadHitSphere->SetupAttachment(Root);
 	HeadHitSphere->InitSphereRadius(180.f);
-	// 보스 머리 피격용: 캡(투사체)만 감지
+	// 보스 머리 충돌 정책:
+	// - 캡쳐된 주먹(대개 Monster 또는 Pawn)과 Overlap -> 머리 타격 카운트
+	// - 플레이어(Pawn)와 Overlap -> 접촉 데미지
+	// - CapProjectile과 Overlap 유지
 	HeadHitSphere->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
-	HeadHitSphere->SetCollisionProfileName(TEXT("Monster_ContactSphere"));
-	HeadHitSphere->SetCollisionResponseToAllChannels(ECR_Ignore);
+	HeadHitSphere->SetCollisionProfileName(TEXT("Boss_Head_CounterOnly"));
+	HeadHitSphere->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
 	HeadHitSphere->SetCollisionResponseToChannel(ECC_GameTraceChannel2, ECR_Overlap); // CapProjectile
+	HeadHitSphere->SetCollisionResponseToChannel(ECC_GameTraceChannel1, ECR_Overlap); // Monster
 	HeadHitSphere->SetGenerateOverlapEvents(true);
 }
 
@@ -172,6 +177,31 @@ void AAttrenashinBoss::OnHeadBeginOverlap(UPrimitiveComponent* OverlappedComp, A
                                           UPrimitiveComponent* OtherComp, int32 OtherBodyIndex,
                                           bool bFromSweep, const FHitResult& SweepResult)
 {
+	if (!OtherActor || OtherActor == this)
+	{
+		return;
+	}
+
+	// 1) 플레이어 접촉 데미지
+	if (AMarioCharacter* Mario = Cast<AMarioCharacter>(OtherActor))
+	{
+		const UWorld* World = GetWorld();
+		const float Now = World ? World->GetTimeSeconds() : 0.f;
+		if ((Now - LastHeadContactDamageTime) >= HeadContactDamageCooldown)
+		{
+			UGameplayStatics::ApplyDamage(
+				Mario,
+				HeadContactDamage,
+				GetInstigatorController(),
+				this,
+				nullptr);
+
+			LastHeadContactDamageTime = Now;
+		}
+		return;
+	}
+
+	// 2) 캡쳐 주먹 머리 타격 카운트
 	AAttrenashinFist* Fist = Cast<AAttrenashinFist>(OtherActor);
 	if (!Fist) return;
 
