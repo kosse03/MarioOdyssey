@@ -173,37 +173,7 @@ bool UCaptureComponent::ReleaseCapture(ECaptureReleaseReason Reason)
 
 void UCaptureComponent::ForceReleaseForGameOver()
 {
-	// 일반 해제 경로 우선
-	if (ReleaseCapture(ECaptureReleaseReason::GameOver))
-	{
-		return;
-	}
-
-	// 비정상 경로(컨트롤러 유실 등) 안전 복구
-	if (!OriginalMario.IsValid())
-	{
-		return;
-	}
-
-	APawn* CPawn = CapturedPawn.Get();
-	if (CPawn)
-	{
-		CPawn->OnTakeAnyDamage.RemoveDynamic(this, &UCaptureComponent::HandleCapturedPawnAnyDamage);
-	}
-
-	DetachMario();
-	ApplyMarioCaptureHide(false);
-	OriginalMario->OnCaptureEnd();
-	OriginalMario->SetCaptureControlRotationOverride(false);
-
-	if (CPawn && CPawn->GetController() == nullptr)
-	{
-		CPawn->SpawnDefaultController();
-	}
-
-	CapturedActor.Reset();
-	CapturedPawn.Reset();
-	bIsCapturing = false;
+	ReleaseCapture(ECaptureReleaseReason::GameOver);
 }
 
 void UCaptureComponent::ApplyMarioCaptureHide(bool bHide)

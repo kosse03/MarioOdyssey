@@ -30,6 +30,24 @@ public:
 	void OnCaptureBegin();
 	UFUNCTION(BlueprintCallable, Category="Mario|Capture")
 	void OnCaptureEnd();
+
+	UFUNCTION(BlueprintCallable, Category="Mario|Checkpoint")
+	void SetCheckpointTransform(const FTransform& InCheckpointTransform);
+
+	UFUNCTION(BlueprintCallable, Category="Mario|Checkpoint")
+	bool HasCheckpoint() const { return bHasCheckpoint; }
+
+	UFUNCTION(BlueprintCallable, Category="Mario|Checkpoint")
+	FTransform GetCheckpointTransform() const { return SavedCheckpointTransform; }
+
+	UFUNCTION(BlueprintCallable, Category="Mario|Checkpoint")
+	bool TeleportToCheckpoint(bool bResetVelocity = true);
+	UFUNCTION(BlueprintCallable, Category="Mario|HP")
+	void StartDeathSequence();
+
+	UFUNCTION(BlueprintCallable, Category="Mario|HP")
+	bool IsGameOverPublic() const { return bGameOver; }
+
 	
 protected:
 	virtual void BeginPlay() override;
@@ -428,18 +446,27 @@ protected:
 
 	UFUNCTION(BlueprintCallable, Category="Mario|HP")
 	bool IsGameOver() const { return bGameOver; }
+	
+	UPROPERTY(BlueprintReadOnly, Category="Mario|HP", meta=(AllowPrivateAccess="true"))
+	bool bIsDead = false;
 
-	UFUNCTION(BlueprintCallable, Category="Mario|Checkpoint")
-	void SetCheckpointTransform(const FTransform& NewCheckpoint);
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Death")
+	UAnimMontage* Montage_Death = nullptr;
 
-	UFUNCTION(BlueprintCallable, Category="Mario|Checkpoint")
-	void SetCheckpointFromActor(const AActor* CheckpointActor);
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Death", meta=(ClampMin="0.0"))
+	float DeathAnimLeadSeconds = 0.65f;
 
-	UFUNCTION(BlueprintCallable, Category="Mario|Checkpoint")
-	FTransform GetCheckpointTransform() const { return LastCheckpointTransform; }
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Death", meta=(ClampMin="0.0"))
+	float DeathFadeInSeconds = 0.35f;
 
-	UFUNCTION(BlueprintCallable, Category="Mario|HP")
-	void BeginDeathSequence();
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Death", meta=(ClampMin="0.0"))
+	float DeathBlackHoldSeconds = 0.05f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Death", meta=(ClampMin="0.0"))
+	float DeathFadeOutSeconds = 0.35f;
+
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category="Mario|Death", meta=(AllowPrivateAccess="true"))
+	bool bDeathSequenceActive = false;
 	
 	UPROPERTY(EditDefaultsOnly, Category="Mario|Combat") // 피격 스턴
 	float HitStunSeconds = 2.57f;
@@ -447,31 +474,11 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Category="Mario|Combat", meta=(AllowPrivateAccess="true")) // 피격 스턴 animbp
 	bool bHitStun = false;
 
-	// Death / Respawn
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Mario|Death|Anim", meta=(AllowPrivateAccess="true"))
-	UAnimMontage* Montage_Death = nullptr;
-
-	UPROPERTY(EditDefaultsOnly, Category="Mario|Death")
-	float DeathAnimDuration = 6.5f; // 사용자 기준: 데스 애니 6.5초
-
-	UPROPERTY(EditDefaultsOnly, Category="Mario|Death")
-	float DeathFadeInDuration = 0.35f;
-
-	UPROPERTY(EditDefaultsOnly, Category="Mario|Death")
-	float DeathBlackHoldDuration = 0.10f;
-
-	UPROPERTY(EditDefaultsOnly, Category="Mario|Death")
-	float DeathFadeOutDuration = 0.35f;
-
-	UPROPERTY(BlueprintReadOnly, Category="Mario|Checkpoint", meta=(AllowPrivateAccess="true"))
-	FTransform LastCheckpointTransform = FTransform::Identity;
-
-	UPROPERTY(BlueprintReadOnly, Category="Mario|Checkpoint", meta=(AllowPrivateAccess="true"))
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category="Mario|Checkpoint", meta=(AllowPrivateAccess="true"))
 	bool bHasCheckpoint = false;
 
-	FTimerHandle DeathAnimTimer;
-	FTimerHandle DeathFadeInTimer;
-	FTimerHandle DeathFadeOutTimer;
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category="Mario|Checkpoint", meta=(AllowPrivateAccess="true"))
+	FTransform SavedCheckpointTransform = FTransform::Identity;
 	
 	// 플레이어가 몬스터와 닿았을 때(블로킹) 데미지/넉백
 	UPROPERTY(EditDefaultsOnly, Category="Mario|Combat")
@@ -560,6 +567,7 @@ public:
 	virtual void OnEndCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust) override;
 	virtual float TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent,
 							 class AController* EventInstigator, AActor* DamageCauser) override;
+	virtual void FellOutOfWorld(const class UDamageType& dmgType) override;
 	//캡쳐 카메라 세팅
 	virtual FRotator GetViewRotation() const override;
 	void SetCaptureControlRotationOverride(bool bEnable);
@@ -574,13 +582,15 @@ private:
 	bool IsMonsterActor(AActor* OtherActor, UPrimitiveComponent* OtherComp) const;
 	
 	void OnThrowCapReleased();
+	
+	void BeginDeathFadeIn();
+	void PerformRespawnFromDeath();
+	void FinishDeathSequence();
+	void ForceBlackFade(float FromAlpha, float ToAlpha, float DurationSeconds);
 
-	void TriggerFade(float FromAlpha, float ToAlpha, float Duration) const;
-	void HandleDeathAfterAnim();
-	void HandleDeathAfterFadeIn();
-	void HandleDeathAfterFadeOut();
-	void RespawnAtCheckpointInternal();
-	APlayerController* ResolvePlayerController() const;
+	FTimerHandle DeathAnimLeadTimer;
+	FTimerHandle DeathFadeInTimer;
+	FTimerHandle DeathFadeOutTimer;
 	
 	//캡쳐 카메라 세팅
 	bool bCaptureControlRotOverride = false;

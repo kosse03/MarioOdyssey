@@ -190,23 +190,6 @@ void AMarioCharacter::OnCaptureBegin()
 
 void AMarioCharacter::OnCaptureEnd()
 {
-	// 시각/충돌 복구(캡쳐/리스폰 경로 공용 안전장치)
-	SetActorHiddenInGame(false);
-	SetActorEnableCollision(true);
-	if (USkeletalMeshComponent* MeshComp = GetMesh())
-	{
-		MeshComp->SetHiddenInGame(false, true);
-		MeshComp->SetVisibility(true, true);
-		MeshComp->SetComponentTickEnabled(true);
-		MeshComp->bPauseAnims = false;
-		MeshComp->bNoSkeletonUpdate = false;
-		if (!MeshComp->GetAnimInstance())
-		{
-			MeshComp->InitAnim(true);
-		}
-		MeshComp->MarkRenderStateDirty();
-	}
-
 	// HitStun 정리(언캡쳐 직후 스턴/입력락 잔여물 제거)
 	if (UWorld* World = GetWorld())
 	{
@@ -872,19 +855,6 @@ void AMarioCharacter::PerformRespawnFromDeath()
 
 	SetActorHiddenInGame(false);
 	SetActorEnableCollision(true);
-	if (USkeletalMeshComponent* MeshComp = GetMesh())
-	{
-		MeshComp->SetHiddenInGame(false, true);
-		MeshComp->SetVisibility(true, true);
-		MeshComp->SetComponentTickEnabled(true);
-		MeshComp->bPauseAnims = false;
-		MeshComp->bNoSkeletonUpdate = false;
-		if (!MeshComp->GetAnimInstance())
-		{
-			MeshComp->InitAnim(true);
-		}
-		MeshComp->MarkRenderStateDirty();
-	}
 
 	CurrentHP = MaxHP;
 
