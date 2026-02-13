@@ -42,7 +42,7 @@ protected:
 	float LifeSeconds = 6.0f;
 
 	UPROPERTY(EditDefaultsOnly, Category="IceShard")
-	float InitialDownSpeed = 1200.f;
+	float InitialDownSpeed = 100.f;
 
 	UPROPERTY(EditDefaultsOnly, Category="IceShard")
 	float GravityScale = 1.0f;
