@@ -2,6 +2,7 @@
 
 #include "MarioOdysseyGameMode.h"
 #include "MarioCharacter.h"
+#include "UI/MarioPlayerController.h"
 #include "UObject/ConstructorHelpers.h"
 #include "Engine/Engine.h"
 
@@ -21,4 +22,7 @@ AMarioOdysseyGameMode::AMarioOdysseyGameMode()
 		UE_LOG(LogTemp, Warning, TEXT("BP_Mario 로드 실패. AMarioCharacter로 폴백"));
 		DefaultPawnClass = AMarioCharacter::StaticClass();
 	}
+
+	// HUD 생성/바인딩용 PlayerController
+	PlayerControllerClass = AMarioPlayerController::StaticClass();
 }

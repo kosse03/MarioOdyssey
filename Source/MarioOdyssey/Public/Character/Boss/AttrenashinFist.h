@@ -34,6 +34,16 @@ void AbortAttackAndReturnForBarrage(float ReturnSeconds);
 	bool IsIceRainSlam() const { return State == EFistState::IceRainSlam; }
 
 	UFUNCTION(BlueprintPure, Category="Attrenashin|Anim")
+	bool IsPhase2SpinAnimActive() const { return bPhase2SpinAnimActive; }
+
+	void SetPhase2SpinAnimActive(bool bActive) { bPhase2SpinAnimActive = bActive; }
+
+	UFUNCTION(BlueprintPure, Category="Attrenashin|Anim")
+	bool IsPhase3ClapAnimActive() const { return bPhase3ClapAnimActive; }
+
+	void SetPhase3ClapAnimActive(bool bActive) { bPhase3ClapAnimActive = bActive; }
+
+	UFUNCTION(BlueprintPure, Category="Attrenashin|Anim")
 	EFistSide GetFistSide() const { return Side; }
 
 	UFUNCTION(BlueprintPure, Category="Attrenashin|Anim")
@@ -134,7 +144,7 @@ private:
 	float FollowAboveSeconds = 1.0f;
 
 	UPROPERTY(EditDefaultsOnly, Category="Attrenashin|SlamSeq")
-	float PreSlamPauseSeconds = 0.5f;
+	float PreSlamPauseSeconds = 0.9f;
 
 	UPROPERTY(EditDefaultsOnly, Category="Attrenashin|SlamSeq")
 	float SlamDownSeconds = 0.12f;
@@ -166,6 +176,12 @@ private:
 	UPROPERTY(EditDefaultsOnly, Category="Attrenashin|CapturedDrive")
 	float CapturedYawRate = 220.f;
 
+	UPROPERTY(EditDefaultsOnly, Category="Attrenashin|CapturedDrive", meta=(ClampMin="1.0"))
+	float CapturedDashSpeedMultiplier = 2.0f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Attrenashin|CapturedDrive")
+	bool bShiftDashWhenNoInput = true;
+
 	// 캡쳐 주행 중 카운터 샤드 피격 반응(가속 누적/지면 이탈 방지용)
 	UPROPERTY(EditDefaultsOnly, Category="Attrenashin|CapturedDrive", meta=(ClampMin="0.0"))
 	float CapturedKnockbackMaxSpeed = 900.f;
@@ -178,10 +194,13 @@ private:
 	bool bLockCapturedDriveWorldZ = true;
 
 	UPROPERTY(EditDefaultsOnly, Category="Attrenashin|CapturedDrive", meta=(EditCondition="bLockCapturedDriveWorldZ"))
-	float CapturedDriveLockedWorldZ = 1800.f;
+	// 캡쳐 중 월드 Z 고정 높이
+	float CapturedDriveLockedWorldZ = 1500.f;
 
 	float StunRemain = 0.f;
 	FVector CapturedKnockbackVelocity = FVector::ZeroVector;
+	bool bPhase2SpinAnimActive = false;
+	bool bPhase3ClapAnimActive = false;
 
 	void EnterState(EFistState NewState);
 

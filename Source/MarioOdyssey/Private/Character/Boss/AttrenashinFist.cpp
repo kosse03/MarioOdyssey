@@ -7,6 +7,8 @@
 #include "EnhancedInputComponent.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "GameFramework/PlayerController.h"
+#include "InputCoreTypes.h"
 #include "InputActionValue.h"
 #include "Capture/CaptureComponent.h"
 #include "MarioOdyssey/MarioCharacter.h"
@@ -14,6 +16,21 @@
 #include "Engine/EngineTypes.h"
 #include "Engine/OverlapResult.h"
 #include "Kismet/GameplayStatics.h"
+#include "HAL/IConsoleManager.h"
+#include "Logging/LogMacros.h"
+
+
+DEFINE_LOG_CATEGORY_STATIC(LogAttrenashinDbg, Log, All);
+
+static FORCEINLINE bool AttrBossDbgEnabled_Fist()
+{
+	if (IConsoleVariable* CVar = IConsoleManager::Get().FindConsoleVariable(TEXT("boss.debug.attrenashin")))
+	{
+		return CVar->GetInt() != 0;
+	}
+	return false;
+}
+
 
 AAttrenashinFist::AAttrenashinFist()
 {
@@ -25,7 +42,7 @@ AAttrenashinFist::AAttrenashinFist()
 	if (UCapsuleComponent* Cap = GetCapsuleComponent())
 	{
 		// 코드에서 보스 주먹 충돌 프리셋 강제 적용
-		// - 월드에는 Block
+		// - 월드에는 Blockmm
 		// - Mario/Pawn, CapProjectile에는 Overlap (캡쳐/강제해제 이벤트용)
 		Cap->SetCollisionProfileName(TEXT("Monster Capsule"));
 		Cap->SetGenerateOverlapEvents(true);
@@ -88,6 +105,8 @@ bool AAttrenashinFist::CanBeCaptured_Implementation(const FCaptureContext& Conte
 void AAttrenashinFist::OnCapturedExtra(AController* Capturer, const FCaptureContext& Context)
 {
 	SlamSeq = EAttrenashinSlamSeq::None;
+	bPhase2SpinAnimActive = false;
+	bPhase3ClapAnimActive = false;
 	SetIgnoreIceStun(false);
 
 	State = EFistState::CapturedDrive;
@@ -115,6 +134,8 @@ void AAttrenashinFist::OnCapturedExtra(AController* Capturer, const FCaptureCont
 
 void AAttrenashinFist::OnReleasedExtra(const FCaptureReleaseContext& Context)
 {
+	bPhase2SpinAnimActive = false;
+	bPhase3ClapAnimActive = false;
 	SetIgnoreIceStun(false);
 	SetDamageOverlapEnabled(false);
 	CapturedKnockbackVelocity = FVector::ZeroVector;
@@ -206,6 +227,8 @@ void AAttrenashinFist::ApplyCapturedShardKnockback(const FVector& ShardVelocity,
 void AAttrenashinFist::AbortAttackAndReturnForBarrage(float ReturnSeconds)
 {
 	if (bIsCaptured) return;
+	bPhase2SpinAnimActive = false;
+	bPhase3ClapAnimActive = false;
 
 	SetIgnoreIceStun(false);
 	SetDamageOverlapEnabled(false);
@@ -230,6 +253,8 @@ void AAttrenashinFist::AbortAttackAndReturnForBarrage(float ReturnSeconds)
 void AAttrenashinFist::StartSlamSequence(AActor* TargetActor)
 {
 	if (bIsCaptured) return;
+	bPhase2SpinAnimActive = false;
+	bPhase3ClapAnimActive = false;
 
 	if (State == EFistState::Stunned || State == EFistState::CapturedDrive || State == EFistState::SlamSequence ||
 		State == EFistState::ReturnToAnchor || State == EFistState::IceRainSlam)
@@ -237,6 +262,9 @@ void AAttrenashinFist::StartSlamSequence(AActor* TargetActor)
 
 	SeqTargetActor = TargetActor;
 	if (!SeqTargetActor.IsValid()) return;
+
+	// 기획 고정: 번갈아 내려치기 준비 대기 시간은 최소 0.9초
+	PreSlamPauseSeconds = FMath::Max(0.9f, PreSlamPauseSeconds);
 
 	SlamSeq = EAttrenashinSlamSeq::MoveAbove;
 	SlamSeqT = 0.f;
@@ -250,6 +278,8 @@ void AAttrenashinFist::StartSlamSequence(AActor* TargetActor)
 void AAttrenashinFist::StartIceRainSlam()
 {
 	if (bIsCaptured) return;
+	bPhase2SpinAnimActive = false;
+	bPhase3ClapAnimActive = false;
 
 	if (State == EFistState::CapturedDrive || State == EFistState::Stunned ||
 		State == EFistState::ReturnToAnchor || State == EFistState::SlamSequence ||
@@ -321,7 +351,18 @@ void AAttrenashinFist::Tick(float DeltaSeconds)
 
 void AAttrenashinFist::EnterState(EFistState NewState)
 {
+	const EFistState PrevState = State;
 	State = NewState;
+
+	if (AttrBossDbgEnabled_Fist())
+	{
+		UE_LOG(LogAttrenashinDbg, Warning, TEXT("[Fist EnterState] %s Side=%d %d->%d Loc=%s"),
+			*GetName(),
+			(int32)Side,
+			(int32)PrevState,
+			(int32)State,
+			*GetActorLocation().ToString());
+	}
 
 	if (State == EFistState::Stunned)
 	{
@@ -612,7 +653,27 @@ void AAttrenashinFist::TickReturnToAnchor(float Dt)
 	const FVector Home = Anchor->GetComponentLocation();
 	const FRotator HomeRot = Anchor->GetComponentRotation();
 
+	const FVector BeforeLoc = GetActorLocation();
+	const bool bBossClap = Boss.IsValid() && Boss->IsPhase3ClapWindow();
+	if (AttrBossDbgEnabled_Fist() && bBossClap)
+	{
+		UE_LOG(LogAttrenashinDbg, Warning, TEXT("[FistReturnToAnchor] %s Side=%d State=%d Loc=%s Home=%s t=%.2f/%.2f"),
+			*GetName(),
+			(int32)Side,
+			(int32)State,
+			*BeforeLoc.ToString(),
+			*Home.ToString(),
+			ReturnT,
+			ReturnDuration);
+	}
+
 	MoveTowardAdaptive(Home, Dt, Remain, ReturnMaxSpeed, true);
+
+	if (AttrBossDbgEnabled_Fist() && bBossClap)
+	{
+		const FVector AfterLoc = GetActorLocation();
+		UE_LOG(LogAttrenashinDbg, Warning, TEXT("[FistReturnToAnchor] After Loc=%s (moved=%.1f)"), *AfterLoc.ToString(), (AfterLoc - BeforeLoc).Size());
+	}
 
 	// 복귀 중 축(회전)도 원복
 	const float Alpha = FMath::Clamp(ReturnDuration > 0.f ? (ReturnT / ReturnDuration) : 1.f, 0.f, 1.f);
@@ -639,7 +700,19 @@ void AAttrenashinFist::TickCapturedDrive(float Dt)
 	R.Yaw += Steer.X * CapturedYawRate * Dt;
 	SetActorRotation(R, ETeleportType::None);
 
-	const FVector DriveDelta = GetActorForwardVector() * CapturedDriveSpeed * Dt;
+	bool bShiftDash = false;
+	if (APlayerController* PC = Cast<APlayerController>(GetController()))
+	{
+		bShiftDash = PC->IsInputKeyDown(EKeys::LeftShift) || PC->IsInputKeyDown(EKeys::RightShift);
+	}
+
+	float Speed = CapturedDriveSpeed * (bShiftDash ? CapturedDashSpeedMultiplier : 1.0f);
+	if (bShiftDashWhenNoInput)
+	{
+		Speed = FMath::Max(0.f, Speed);
+	}
+
+	const FVector DriveDelta = GetActorForwardVector() * Speed * Dt;
 	CapturedKnockbackVelocity.Z = 0.f;
 	const FVector KnockDelta = CapturedKnockbackVelocity * Dt;
 

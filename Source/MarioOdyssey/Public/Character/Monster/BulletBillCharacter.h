@@ -4,8 +4,13 @@
 #include "Character/Monster/MonsterCharacterBase.h"
 #include "BulletBillCharacter.generated.h"
 
-struct FInputActionValue;
-
+/**
+ * Bullet Bill (Killer) - captureable flying projectile-like monster.
+ * - Moves forward continuously (AddActorWorldOffset sweep)
+ * - When NOT captured: homes to Mario on Yaw only (no pitch)
+ * - When captured: player can steer Yaw left/right only (no pitch)
+ * - Gravity disabled (Flying mode + GravityScale=0)
+ */
 UCLASS()
 class MARIOODYSSEY_API ABulletBillCharacter : public AMonsterCharacterBase
 {
@@ -14,81 +19,88 @@ class MARIOODYSSEY_API ABulletBillCharacter : public AMonsterCharacterBase
 public:
 	ABulletBillCharacter();
 
-	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
+	virtual void BeginPlay() override;
+
+	// override to bind Enhanced Input without base AddMovementInput bindings
 	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
 
+	/** Launcher helper: temporarily disable collision right after spawn to prevent instant impact/explosion. */
+	UFUNCTION(BlueprintCallable, Category="BulletBill|Spawn")
+	void StartSpawnGrace(float GraceSeconds = -1.f);
+
 protected:
-	// =========================
-	// Flight
-	// =========================
-	UPROPERTY(EditDefaultsOnly, Category="BulletBill|Flight")
-	float FlySpeed = 400.f;
+	// ===== movement =====
+	UPROPERTY(EditAnywhere, Category="BulletBill|Move")
+	float FlySpeed = 1600.f;
 
-	UPROPERTY(EditDefaultsOnly, Category="BulletBill|Flight")
-	float CapturedFlySpeed = 500.f;
+	UPROPERTY(EditAnywhere, Category="BulletBill|Move")
+	float CapturedFlySpeed = 1700.f;
 
-	// 플레이어 조종 시 조향(도/초)
-	UPROPERTY(EditDefaultsOnly, Category="BulletBill|Flight")
-	float SteerYawRate = 220.f;
+	// ===== steering (capture) =====
+	UPROPERTY(EditAnywhere, Category="BulletBill|Steer")
+	float SteerYawRate = 160.f; // deg/sec
 
-	UPROPERTY(EditDefaultsOnly, Category="BulletBill|Flight")
-	float SteerPitchRate = 140.f;
-
-	UPROPERTY(EditDefaultsOnly, Category="BulletBill|Flight")
-	float PitchMin = -35.f;
-
-	UPROPERTY(EditDefaultsOnly, Category="BulletBill|Flight")
-	float PitchMax = 35.f;
-
-	// 적 상태(미캡쳐)에서 유도 여부
-	UPROPERTY(EditDefaultsOnly, Category="BulletBill|AI")
+	// ===== homing (enemy) =====
+	UPROPERTY(EditAnywhere, Category="BulletBill|Homing")
 	bool bHomingToMario = true;
 
-	UPROPERTY(EditDefaultsOnly, Category="BulletBill|AI")
-	float HomingYawRate = 120.f;
+	UPROPERTY(EditAnywhere, Category="BulletBill|Homing")
+	float HomingYawRate = 120.f; // deg/sec
 
-	// =========================
-	// Damage / Explosion
-	// =========================
-	UPROPERTY(EditDefaultsOnly, Category="BulletBill|Combat")
+	// ===== lifetime =====
+	UPROPERTY(EditAnywhere, Category="BulletBill|Life")
+	float MaxLifeSeconds = 12.f;
+
+	// ===== damage =====
+	UPROPERTY(EditAnywhere, Category="BulletBill|Damage")
 	float ImpactDamageToMario = 1.f;
 
-	UPROPERTY(EditDefaultsOnly, Category="BulletBill|Combat")
-	float ImpactDamageToMonstersWhenCaptured = 9999.f; // 일단 확실하게 죽이게 크게
+	UPROPERTY(EditAnywhere, Category="BulletBill|Damage")
+	float ImpactDamageToMonstersWhenCaptured = 1.f;
 
-	UPROPERTY(EditDefaultsOnly, Category="BulletBill|Life")
-	float MaxLifeSeconds = 15.f;
+	// ===== spawn grace =====
+	UPROPERTY(EditAnywhere, Category="BulletBill|Spawn")
+	float DefaultSpawnGraceSeconds = 0.15f;
 
-	UPROPERTY(EditDefaultsOnly, Category="BulletBill|Life")
-	float CapturedMaxLifeSeconds = 15.f;
+protected:
+	// input
+	void Input_Steer(const struct FInputActionValue& Value);
+	// 캡쳐 중 카메라 회전(마우스 룩). ViewTarget(Mario)로 Look 입력을 전달해 TargetControlRotation을 갱신한다.
+	void Input_LookCamera(const struct FInputActionValue& Value);
 
-	// 폭발 연출은 BP에서 처리(나이아가라/사운드)
+	// passthroughs
+	void Input_ReleaseCapture_Passthrough(const struct FInputActionValue& Value);
+	void Input_RunStarted_Passthrough(const struct FInputActionValue& Value);
+	void Input_RunCompleted_Passthrough(const struct FInputActionValue& Value);
+	void Input_JumpStarted_Passthrough(const struct FInputActionValue& Value);
+	void Input_JumpCompleted_Passthrough(const struct FInputActionValue& Value);
+
+	class AMarioCharacter* GetMarioViewTarget() const;
+
+	void MoveAndHandleHit(float Dt);
+	void ApplyImpactDamage(AActor* HitActor);
+
+	void RequestReleaseIfCapturedAndExplode();
+	void ExplodeInternal();
+
 	UFUNCTION(BlueprintImplementableEvent, Category="BulletBill|FX")
 	void BP_OnExplode();
 
+	// capture hooks
+	virtual void OnCapturedExtra(AController* Capturer, const struct FCaptureContext& Context) override;
+	virtual void OnReleasedExtra(const struct FCaptureReleaseContext& Context) override;
+
 private:
-	// 입력(조향)
+	// state
 	FVector2D SteerInput = FVector2D::ZeroVector;
 
-	// 수명 타이머
 	float LifeRemain = 0.f;
+	bool  bExploded = false;
 
-	bool bExploded = false;
+	// spawn grace
+	bool bSpawnGraceActive = false;
+	FTimerHandle SpawnGraceTimer;
 
-	// ===== input wrappers (protected 바인딩 문제 회피용) =====
-	void Input_Steer(const FInputActionValue& Value);
-	void Input_LookForSteer(const FInputActionValue& Value);
-	void Input_ReleaseCapture_Passthrough(const FInputActionValue& Value);
-	void Input_RunStarted_Passthrough(const FInputActionValue& Value);
-	void Input_RunCompleted_Passthrough(const FInputActionValue& Value);
-	void Input_JumpStarted_Passthrough(const FInputActionValue& Value);
-	void Input_JumpCompleted_Passthrough(const FInputActionValue& Value);
-
-	// ===== helpers =====
-	class AMarioCharacter* GetMarioViewTarget() const;
-	void MoveAndHandleHit(float Dt);
-	void ApplyImpactDamage(AActor* HitActor);
-	void RequestReleaseIfCapturedAndExplode();
-	void ExplodeInternal();
+	void EndSpawnGrace();
 };

@@ -271,9 +271,6 @@ void UCaptureComponent::HandleCapturedPawnAnyDamage(AActor* DamagedActor, float 
 	if (DamagedActor != CapturedPawn.Get()) return;
 	if (!OriginalMario.IsValid()) return;
 
-	// 정책: 캡쳐 중에는 마리오가 직접 피해를 받지 않음.
-	// (강제 해제/카운터 샤드 카운트는 보스/캡쳐 몬스터 로직에서 처리)
-
 	// 몬스터 피격 리액션(넉백/스턴/애니)
 	if (CapturedActor.IsValid() && CapturedActor->GetClass()->ImplementsInterface(UCapturableInterface::StaticClass()))
 	{

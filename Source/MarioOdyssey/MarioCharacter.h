@@ -30,6 +30,7 @@ public:
 	void OnCaptureBegin();
 	UFUNCTION(BlueprintCallable, Category="Mario|Capture")
 	void OnCaptureEnd();
+	bool IsCaptureActive() const;
 
 	UFUNCTION(BlueprintCallable, Category="Mario|Checkpoint")
 	void SetCheckpointTransform(const FTransform& InCheckpointTransform);
@@ -52,6 +53,12 @@ public:
 protected:
 	virtual void BeginPlay() override;
 	virtual void Landed(const FHitResult& Hit) override;//점프 OnLanded 오버라이드
+
+	// HP 변경은 여기로만 통과(=GameInstance/HUD 동기화 보장)
+	void SetHP_Internal(float NewHP);
+	void SyncHPToGameInstance();
+	void InitHPFromGameInstance();
+
 
 	// 플레이어-몬스터 접촉(블로킹) 데미지/넉백
 	UFUNCTION()
@@ -441,8 +448,23 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Category="Mario|HP", meta=(AllowPrivateAccess="true"))
 	bool bGameOver = false;
 
+public:
+
 	UFUNCTION(BlueprintCallable, Category="Mario|HP")
 	float GetHP() const { return CurrentHP; }
+
+	UFUNCTION(BlueprintCallable, Category="Mario|HP")
+	float GetMaxHP() const { return MaxHP; }
+
+	// HUD/진행도 연동용: 하트 픽업 등에서 사용(풀회복/증가)
+	UFUNCTION(BlueprintCallable, Category="Mario|HP")
+	void HealToFull();
+
+	UFUNCTION(BlueprintCallable, Category="Mario|HP")
+	void AddHP(float Delta);
+
+protected:
+
 
 	UFUNCTION(BlueprintCallable, Category="Mario|HP")
 	bool IsGameOver() const { return bGameOver; }
@@ -580,6 +602,7 @@ private:
 	FMarioState State;
 
 	bool IsMonsterActor(AActor* OtherActor, UPrimitiveComponent* OtherComp) const;
+	bool IsPostCaptureInvulnActive() const;
 	
 	void OnThrowCapReleased();
 	
@@ -591,6 +614,10 @@ private:
 	FTimerHandle DeathAnimLeadTimer;
 	FTimerHandle DeathFadeInTimer;
 	FTimerHandle DeathFadeOutTimer;
+
+	// ===== Level Travel Fade Unlock =====
+	FTimerHandle TravelFadeUnlockTimer;
+	void EndTravelFadeUnlock();
 	
 	//캡쳐 카메라 세팅
 	bool bCaptureControlRotOverride = false;
@@ -600,4 +627,9 @@ private:
 	bool bInputLocked = false;
 	FTimerHandle HitStunTimer;
 	void ClearHitStun();
+
+	UPROPERTY(EditDefaultsOnly, Category="Mario|Damage", meta=(ClampMin="0.0"))
+	float PostCaptureInvulnSeconds = 1.0f;
+
+	float PostCaptureInvulnEndTime = -1.f;
 };

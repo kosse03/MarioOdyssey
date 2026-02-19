@@ -76,7 +76,7 @@ protected:
     UPROPERTY(EditInstanceOnly, BlueprintReadOnly, Category="Boss|Cutscene|ProxyRefs")
     TObjectPtr<AActor> LeftHandProxyActor = nullptr;
 
-    /** 프록시 고정 원위치(요구사항 반영) */
+    /** 프록시 고정 원위치*/
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Boss|Cutscene|ProxyTransforms")
     FVector HeadProxyLocation = FVector(0.0f, 0.0f, 9085.0f);
 
@@ -93,7 +93,7 @@ protected:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Boss|Cutscene")
     bool bEnableProxyCollisionWhenVisible = false;
 
-    /** 이전 요구사항 호환: 보스 스폰 기준 위치/회전 */
+    /**  보스 스폰 기준 위치/회전 */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Boss|Spawn")
     bool bUseFixedBossSpawnTransform = true;
 
@@ -113,7 +113,7 @@ protected:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Boss|Encounter", meta=(ClampMin="1"))
     int32 HeadHitsToClear = 3;
 
-    /** 아레나 진입 후 컷신 시작까지 대기 시간(요구사항: 2초) */
+    /** 아레나 진입 후 컷신 시작까지 대기 시간 */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Boss|Encounter", meta=(ClampMin="0.0"))
     float EncounterCutsceneStartDelaySeconds = 2.0f;
 

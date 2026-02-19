@@ -105,7 +105,7 @@ void ABossArenaController::OnEncounterTriggerBeginOverlap(
     bHasEncounterStarted = true;
     bBossDefeated = false;
 
-    // 요구사항: 아레나 진입 후 2초 대기 -> 컷신 시작
+    //아레나 진입 후 2초 대기 -> 컷신 시작
     StartEncounterCutsceneWithDelay();
 }
 
@@ -223,14 +223,14 @@ void ABossArenaController::OnEncounterCutsceneFinished()
 
     bIsCutscenePlaying = false;
 
-    // 요구사항: 컷신 종료 시 프록시를 원위치로 워프한 뒤 숨김
+    //컷신 종료 시 프록시를 원위치로 워프한 뒤 숨김
     RestoreCutsceneProxyTransforms();
     SetCutsceneProxyVisible(false);
 
     // 플레이어 카메라로 부드럽게 복귀
     TransitionToPlayerCamera(CutsceneToPlayerCameraBlendSeconds);
 
-    // 요구사항: 컷신 종료 즉시 보스 스폰
+    //컷신 종료 즉시 보스 스폰
     SpawnBossNow();
 }
 

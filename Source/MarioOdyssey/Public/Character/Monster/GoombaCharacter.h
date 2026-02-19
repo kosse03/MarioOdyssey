@@ -28,6 +28,10 @@ class MARIOODYSSEY_API AGoombaCharacter : public AMonsterCharacterBase
 public:
 	AGoombaCharacter();
 
+	// 현재 스택(굼바 타워) 높이(본인 포함). 스택이 아니면 1.
+	UFUNCTION(BlueprintPure, Category="Goomba|Stack")
+	int32 GetStackCount() const;
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;

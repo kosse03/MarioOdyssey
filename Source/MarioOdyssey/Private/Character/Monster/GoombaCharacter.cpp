@@ -61,6 +61,33 @@ AGoombaCharacter::AGoombaCharacter()
 	}
 }
 
+
+int32 AGoombaCharacter::GetStackCount() const
+{
+	// const 환경에서 스택 루트/탑을 따라가며 카운트
+	const AGoombaCharacter* Root = this;
+	while (Root && Root->StackBelow.IsValid())
+	{
+		Root = Root->StackBelow.Get();
+	}
+
+	int32 Count = 0;
+	const AGoombaCharacter* It = Root;
+	while (It)
+	{
+		++Count;
+		if (It->StackAbove.IsValid())
+		{
+			It = It->StackAbove.Get();
+		}
+		else
+		{
+			break;
+		}
+	}
+	return Count;
+}
+
 void AGoombaCharacter::BeginPlay()
 {
 	Super::BeginPlay();

@@ -20,6 +20,7 @@
 
 #include "Capture/CapturableInterface.h"
 #include "Kismet/GameplayStatics.h"
+#include "Progress/MarioGameInstance.h"
 
 
 AMarioCharacter::AMarioCharacter()
@@ -185,6 +186,7 @@ void AMarioCharacter::OnCaptureBegin()
 		MoveComp->BrakingDecelerationWalking = DefaultBrakingDecelWalking;
 		MoveComp->BrakingFrictionFactor = DefaultBrakingFrictionFactor;
 	}
+	PostCaptureInvulnEndTime = -1.f;
 	ApplyMoveSpeed();
 }
 
@@ -264,7 +266,24 @@ void AMarioCharacter::OnCaptureEnd()
 		MoveComp->BrakingFrictionFactor = DefaultBrakingFrictionFactor;
 	}
 	
+	if (UWorld* World = GetWorld())
+	{
+		PostCaptureInvulnEndTime = World->GetTimeSeconds() + FMath::Max(0.f, PostCaptureInvulnSeconds);
+	}
+
 	ApplyMoveSpeed();
+}
+
+bool AMarioCharacter::IsCaptureActive() const
+{
+	return (CaptureComp && CaptureComp->IsCapturing());
+}
+
+bool AMarioCharacter::IsPostCaptureInvulnActive() const
+{
+	const UWorld* World = GetWorld();
+	if (!World) return false;
+	return World->GetTimeSeconds() < PostCaptureInvulnEndTime;
 }
 
 void AMarioCharacter::BeginPlay()
@@ -272,8 +291,31 @@ void AMarioCharacter::BeginPlay()
 	Super::BeginPlay();
 	
 	CurrentHP = MaxHP;
-	bHasCheckpoint = true;
-	SavedCheckpointTransform = GetActorTransform();
+	InitHPFromGameInstance();
+
+	// ===== Portal/Level Travel Spawn Override =====
+	// 포탈 이동 시 GameInstance가 저장해둔 스폰 트랜스폼이 있으면, BeginPlay에서 1회 적용한다.
+	if (UMarioGameInstance* GI = GetGameInstance<UMarioGameInstance>())
+	{
+		FTransform PendingSpawn;
+		if (GI->ConsumePendingSpawnTransform(PendingSpawn))
+		{
+			SetActorTransform(PendingSpawn, false, nullptr, ETeleportType::TeleportPhysics);
+			bHasCheckpoint = true;
+			SavedCheckpointTransform = PendingSpawn;
+		}
+		else
+		{
+			bHasCheckpoint = true;
+			SavedCheckpointTransform = GetActorTransform();
+		}
+	}
+	else
+	{
+		bHasCheckpoint = true;
+		SavedCheckpointTransform = GetActorTransform();
+	}
+
 	
 	if (SpringArm)
 	{
@@ -298,6 +340,41 @@ void AMarioCharacter::BeginPlay()
 				}
 			}
 		}
+		// ===== Pending Travel Fade-Out =====
+		// 포탈 이동 직후라면(이전 맵에서 FadeIn -> OpenLevel 이후), 여기서 FadeOut을 수행한다.
+		if (UMarioGameInstance* GI = GetGameInstance<UMarioGameInstance>())
+		{
+			float FadeOutSeconds = 0.f;
+			bool bLockUntilFadeOut = true;
+			if (GI->ConsumePendingFadeOut(FadeOutSeconds, bLockUntilFadeOut))
+			{
+				if (bLockUntilFadeOut)
+				{
+					PC->SetIgnoreMoveInput(true);
+					PC->SetIgnoreLookInput(true);
+				}
+
+				ForceBlackFade(1.f, 0.f, FadeOutSeconds);
+
+				if (bLockUntilFadeOut)
+				{
+					if (UWorld* World = GetWorld())
+					{
+						World->GetTimerManager().ClearTimer(TravelFadeUnlockTimer);
+						const float Wait = FMath::Max(0.f, FadeOutSeconds);
+						if (Wait <= KINDA_SMALL_NUMBER)
+						{
+							EndTravelFadeUnlock();
+						}
+						else
+						{
+							World->GetTimerManager().SetTimer(TravelFadeUnlockTimer, this, &AMarioCharacter::EndTravelFadeUnlock, Wait, false);
+						}
+					}
+				}
+			}
+		}
+
 	}
 	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
 	{
@@ -329,7 +406,53 @@ void AMarioCharacter::BeginPlay()
 	{
 		Capsule->OnComponentHit.AddDynamic(this, &AMarioCharacter::OnMarioCapsuleHit);
 	}
+
+
 }
+
+void AMarioCharacter::InitHPFromGameInstance()
+{
+	UMarioGameInstance* GI = GetGameInstance<UMarioGameInstance>();
+	if (!GI) return;
+
+	// 레벨 전환/리스폰 등에서 유지된 HP가 있으면 그 값을 사용
+	if (GI->HasSavedHP())
+	{
+		MaxHP = GI->GetMaxHP();
+		CurrentHP = GI->GetCurrentHP();
+		return;
+	}
+
+	// 최초 진입이면 현재(MaxHP/CurrentHP)를 저장 + HUD에 초기값 전달
+	GI->SetHP(CurrentHP, MaxHP);
+}
+
+void AMarioCharacter::SyncHPToGameInstance()
+{
+	UMarioGameInstance* GI = GetGameInstance<UMarioGameInstance>();
+	if (!GI) return;
+	GI->SetHP(CurrentHP, MaxHP);
+}
+
+void AMarioCharacter::SetHP_Internal(float NewHP)
+{
+	CurrentHP = FMath::Clamp(NewHP, 0.f, MaxHP);
+	SyncHPToGameInstance();
+}
+
+void AMarioCharacter::HealToFull()
+{
+	if (bDeathSequenceActive || bGameOver) return;
+	SetHP_Internal(MaxHP);
+}
+
+void AMarioCharacter::AddHP(float Delta)
+{
+	if (bDeathSequenceActive || bGameOver) return;
+	if (Delta <= 0.f) return;
+	SetHP_Internal(CurrentHP + Delta);
+}
+
 
 void AMarioCharacter::SetCheckpointTransform(const FTransform& InCheckpointTransform)
 {
@@ -757,6 +880,23 @@ void AMarioCharacter::ForceBlackFade(float FromAlpha, float ToAlpha, float Durat
 	);
 }
 
+
+void AMarioCharacter::EndTravelFadeUnlock()
+{
+	APlayerController* PC = Cast<APlayerController>(Controller);
+	if (!PC)
+	{
+		PC = Cast<APlayerController>(GetController());
+	}
+	if (!PC)
+	{
+		return;
+	}
+
+	PC->SetIgnoreMoveInput(false);
+	PC->SetIgnoreLookInput(false);
+}
+
 void AMarioCharacter::StartDeathSequence()
 {
 	if (bDeathSequenceActive)
@@ -856,7 +996,7 @@ void AMarioCharacter::PerformRespawnFromDeath()
 	SetActorHiddenInGame(false);
 	SetActorEnableCollision(true);
 
-	CurrentHP = MaxHP;
+	SetHP_Internal(MaxHP);
 
 	// 리스폰 후 상태 초기화
 	OnCaptureEnd();
@@ -910,7 +1050,7 @@ void AMarioCharacter::FinishDeathSequence()
 
 void AMarioCharacter::FellOutOfWorld(const UDamageType& dmgType)
 {
-	CurrentHP = 0.f;
+	SetHP_Internal(0.f);
 	StartDeathSequence();
 }
 
@@ -927,7 +1067,13 @@ float AMarioCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const&
 		return 0.f;
 	}
 
-	CurrentHP = FMath::Clamp(CurrentHP - DamageAmount, 0.f, MaxHP);
+	// 캡쳐 해제 직후 짧은 무적
+	if (IsPostCaptureInvulnActive())
+	{
+		return 0.f;
+	}
+
+	SetHP_Internal(CurrentHP - DamageAmount);
 
 	UE_LOG(LogTemp, Warning, TEXT("[Mario] Damage=%.2f HP=%.2f/%.2f"), DamageAmount, CurrentHP, MaxHP);
 
@@ -995,6 +1141,7 @@ void AMarioCharacter::OnMarioCapsuleHit(UPrimitiveComponent* HitComp, AActor* Ot
 	if (!OtherActor || OtherActor == this) return;
 	if (bGameOver) return;
 	if (CaptureComp && CaptureComp->IsCapturing()) return; // 캡쳐 중엔 마리오가 비활성/숨김 처리됨
+	if (IsPostCaptureInvulnActive()) return;
 
 	// cooldown: 캡슐이 계속 미끄러지면 Hit가 연속으로 뜨는 걸 방지
 	if (UWorld* World = GetWorld())
